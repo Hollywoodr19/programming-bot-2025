@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.Python
+env/
+venv/
+.venv
+bot_memory.db
+chroma_db/
+static/*.html
+static/*.png
+.env
+.vscode/
+.idea/
+*.swp
+.DS_Store
+*.log

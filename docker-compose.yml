@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  programming-bot:
+    build: .
+    ports:
+      - "8100:8100"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GIT_REPO_PATH=/app/repo
+      - PORT=8100
+    volumes:
+      - ./bot_memory.db:/app/bot_memory.db
+      - ./chroma_db:/app/chroma_db
+      - ${GIT_REPO_PATH:-./}:/app/repo:ro
+      - ./static:/app/static
+    restart: unless-stopped

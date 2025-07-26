@@ -1,0 +1,17 @@
+anthropic
+tiktoken
+fastapi
+uvicorn
+websockets
+jinja2
+python-multipart
+gitpython
+chromadb
+sentence-transformers
+pydantic
+networkx
+pyvis
+matplotlib
+seaborn
+pandas
+python-dotenv
