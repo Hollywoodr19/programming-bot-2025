@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Programming Bot 2025 - {{ user.display_name }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .welcome {
+            font-size: 1.5rem;
+            font-weight: 300;
+        }
+
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 30px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            padding: 5px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px 20px;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.7);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .tab-btn.active {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .tab-content {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            min-height: 500px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 500px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            max-width: 80%;
+        }
+
+        .user-message {
+            background: linear-gradient(135deg, #00d4aa 0%, #00a693 100%);
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .bot-message {
+            background: rgba(255, 255, 255, 0.1);
+            margin-right: auto;
+        }
+
+        .chat-input-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+        }
+
+        .chat-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .send-btn {
+            padding: 15px 25px;
+            background: linear-gradient(135deg, #00d4aa 0%, #00a693 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .send-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 212, 170, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            font-size: 16px;
+        }
+
+        .form-group input::placeholder, .form-group textarea::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .btn {
+            background: #00d4aa;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 212, 170, 0.3);
+        }
+
+        .quick-replies {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .quick-reply-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .quick-reply-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        @media (max-width: 768px) {
+            .tabs {
+                flex-direction: column;
+            }
+
+            .tab-btn {
+                margin-bottom: 5px;
+            }
+
+            .chat-input-container {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+<!-- Session Recovery Modal -->
+    {% if show_session_recovery and recovery_data %}
+    <div id="session-recovery-modal" style="
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.7); backdrop-filter: blur(10px);
+        display: flex; justify-content: center; align-items: center;
+        z-index: 1000;
+    ">
+        <div style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px; padding: 40px; max-width: 600px; width: 90%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white; text-align: center;
+        ">
+            <h2 style="margin-bottom: 20px;">🧠 Session Recovery</h2>
+            <p style="margin-bottom: 30px; opacity: 0.9;">{{ recovery_data.message }}</p>
+
+            {% if recovery_data.single_session %}
+            <!-- Single Session Recovery -->
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin-bottom: 20px;">
+                <h3>{{ recovery_data.session.name }}</h3>
+                <p><strong>Letzter Fortschritt:</strong> {{ recovery_data.session.last_action }}</p>
+                <p><strong>Zuletzt aktiv:</strong> {{ recovery_data.session.last_active }}</p>
+            </div>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button onclick="resumeSession('{{ recovery_data.session.id }}')"
+                        style="background: #00d4aa; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer;">
+                    🔄 Session fortsetzen
+                </button>
+                <button onclick="startNewProject()"
+                        style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer;">
+                    ✨ Neues Projekt
+                </button>
+            </div>
+
+            {% else %}
+            <!-- Multiple Sessions -->
+            <div style="max-height: 300px; overflow-y: auto; margin-bottom: 20px;">
+                {% for session in recovery_data.sessions %}
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin-bottom: 10px; text-align: left;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h4>{{ session.name }}</h4>
+                            <p style="margin: 5px 0; opacity: 0.8;">{{ session.last_action }}</p>
+                            <small style="opacity: 0.7;">{{ session.last_active }}</small>
+                        </div>
+                        <button onclick="resumeSession('{{ session.id }}')"
+                                style="background: #00d4aa; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer;">
+                            Fortsetzen
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <button onclick="startNewProject()"
+                    style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer;">
+                ✨ Neues Projekt starten
+            </button>
+            {% endif %}
+
+            <div style="margin-top: 20px;">
+                <button onclick="skipRecovery()"
+                        style="background: transparent; color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.3); padding: 10px 20px; border-radius: 8px; cursor: pointer;">
+                    Überspringen
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <div class="header">
+            <h1 class="welcome">🤖 Willkommen, {{ user.display_name }}!</h1>
+            <a href="/logout" class="logout-btn">Abmelden</a>
+        </div>
+
+        {% if mode == 'chat_only' %}
+        <div style="background: rgba(0, 212, 170, 0.1); border: 1px solid rgba(0, 212, 170, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            💬 <strong>Chat-Only Modus</strong> - Entspannte Gespräche ohne Programmier-UI
+        </div>
+        {% endif %}
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('chat')">💬 Chat</button>
+            {% if mode != 'chat_only' %}
+            <button class="tab-btn" onclick="showTab('projects')">📁 Projekte</button>
+            <button class="tab-btn" onclick="showTab('code-review')">🔍 Code Review</button>
+            <button class="tab-btn" onclick="showTab('dashboard')">📊 Dashboard</button>
+            {% endif %}
+        </div>
+
+        <!-- Chat Tab -->
+        <div id="tab-chat" class="tab-content">
+            {% if mode == 'chat_only' %}
+            <div class="quick-replies">
+                <button class="quick-reply-btn" onclick="sendQuickReply('Hallo! Wie geht es dir?')">👋 Hallo</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('Erzähl mir einen Witz!')">😄 Witz</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('Wie ist das Wetter heute?')">🌤️ Wetter</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('Was kannst du alles?')">❓ Hilfe</button>
+            </div>
+            {% endif %}
+
+            <div class="chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="message bot-message">
+                        {% if mode == 'chat_only' %}
+                        Hallo {{ user.display_name }}! 👋 Ich bin bereit für ein entspanntes Gespräch! Was beschäftigt dich heute?
+                        {% else %}
+                        Hallo {{ user.display_name }}! Wie kann ich dir beim Programmieren helfen? 🚀
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="chat-input-container">
+                    <input type="text" id="chat-input" class="chat-input"
+                           placeholder="{% if mode == 'chat_only' %}Schreib mir einfach was...{% else %}Deine Nachricht...{% endif %}"
+                           onkeypress="if(event.key==='Enter') sendMessage()">
+                    <button onclick="sendMessage()" class="send-btn">Senden</button>
+                </div>
+            </div>
+        </div>
+
+        {% if mode != 'chat_only' %}
+        <!-- Projects Tab -->
+        <div id="tab-projects" class="tab-content hidden">
+            <h3>📁 Projekt Management</h3>
+            <p style="margin-bottom: 30px; opacity: 0.8;">Erstelle und verwalte deine Code-Projekte</p>
+
+            <div style="background: rgba(255,255,255,0.1); padding: 25px; border-radius: 15px; margin-bottom: 25px;">
+                <h4 style="margin-bottom: 20px;">✨ Neues Projekt erstellen</h4>
+
+                <div class="form-group">
+                    <label>Projektname:</label>
+                    <input type="text" id="project-name" placeholder="z.B. Meine Todo-App">
+                </div>
+
+                <div class="form-group">
+                    <label>Beschreibung:</label>
+                    <textarea id="project-description" placeholder="Kurze Beschreibung des Projekts..." style="height: 80px; resize: vertical;"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Programmiersprache:</label>
+                    <select id="project-language">
+                        <option value="python">🐍 Python</option>
+                        <option value="javascript">🟨 JavaScript</option>
+                        <option value="html">🌐 HTML/CSS</option>
+                        <option value="java">☕ Java</option>
+                        <option value="cpp">⚡ C++</option>
+                        <option value="csharp">🔷 C#</option>
+                    </select>
+                </div>
+
+                <button onclick="createNewProject()" class="btn">🚀 Projekt erstellen</button>
+            </div>
+
+            <div style="background: rgba(255,255,255,0.1); padding: 25px; border-radius: 15px;">
+                <h4 style="margin-bottom: 20px;">📂 Meine Projekte</h4>
+                <div id="projects-list">
+                    <p style="opacity: 0.7; font-style: italic;">Noch keine Projekte erstellt. Erstelle dein erstes Projekt oben! 👆</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Code Review Tab -->
+        <div id="tab-code-review" class="tab-content hidden">
+            <h3>🔍 Code Review</h3>
+            <p style="margin-bottom: 20px; opacity: 0.8;">Lass deinen Code analysieren und verbessern</p>
+
+            <div class="form-group">
+                <label>Programmiersprache:</label>
+                <select id="review-language">
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="java">Java</option>
+                    <option value="cpp">C++</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Code eingeben:</label>
+                <textarea id="code-input" placeholder="Füge hier deinen Code ein..." style="height: 200px; font-family: monospace;"></textarea>
+            </div>
+
+            <button onclick="analyzeCode()" class="btn">🔍 Code analysieren</button>
+
+            <div id="analysis-result" style="margin-top: 20px;"></div>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="tab-dashboard" class="tab-content hidden">
+            <h3>📊 Dashboard</h3>
+            <p style="margin-bottom: 20px; opacity: 0.8;">Überblick über deine Aktivitäten</p>
+
+            <div id="dashboard-metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; text-align: center;">
+                    <h4>💬 Nachrichten</h4>
+                    <div id="message-count" style="font-size: 2rem; margin: 10px 0;">-</div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; text-align: center;">
+                    <h4>📁 Projekte</h4>
+                    <div id="project-count" style="font-size: 2rem; margin: 10px 0;">-</div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; text-align: center;">
+                    <h4>🤖 API Status</h4>
+                    <div id="api-status" style="font-size: 1.2rem; margin: 10px 0;">-</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

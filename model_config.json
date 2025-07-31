@@ -1,0 +1,87 @@
+{
+  "current_model": "claude-sonnet-4-20250726",
+  "fallback_model": "claude-3-5-sonnet-20241022",
+  "model_preferences": {
+    "primary": "sonnet",
+    "max_cost_tier": "opus",
+    "auto_update": true,
+    "require_confirmation": false
+  },
+  "known_models": {
+    "claude-opus-4-20250514": {
+      "type": "opus",
+      "generation": "4",
+      "date": "2025-05-14",
+      "cost_tier": "high",
+      "status": "active",
+      "features": [
+        "extended_thinking",
+        "tool_use",
+        "code_execution"
+      ]
+    },
+    "claude-sonnet-4-20250514": {
+      "type": "sonnet",
+      "generation": "4",
+      "date": "2025-05-14",
+      "cost_tier": "medium",
+      "status": "active",
+      "features": [
+        "extended_thinking",
+        "tool_use"
+      ]
+    },
+    "claude-3-7-sonnet-20250219": {
+      "type": "sonnet",
+      "generation": "3.7",
+      "date": "2025-02-19",
+      "cost_tier": "medium",
+      "status": "active",
+      "features": [
+        "hybrid_reasoning"
+      ]
+    },
+    "claude-opus-4-20250802": {
+      "type": "opus",
+      "generation": "claude-4",
+      "date": "20250802",
+      "cost_tier": "high",
+      "status": "active",
+      "auto_discovered": true
+    },
+    "claude-sonnet-4-20250802": {
+      "type": "sonnet",
+      "generation": "claude-4",
+      "date": "20250802",
+      "cost_tier": "medium",
+      "status": "active",
+      "auto_discovered": true
+    },
+    "claude-haiku-4-20250802": {
+      "type": "haiku",
+      "generation": "claude-4",
+      "date": "20250802",
+      "cost_tier": "low",
+      "status": "active",
+      "auto_discovered": true
+    },
+    "claude-opus-4-20250726": {
+      "type": "opus",
+      "generation": "claude-4",
+      "date": "20250726",
+      "cost_tier": "high",
+      "status": "active",
+      "auto_discovered": true
+    },
+    "claude-sonnet-4-20250726": {
+      "type": "sonnet",
+      "generation": "claude-4",
+      "date": "20250726",
+      "cost_tier": "medium",
+      "status": "active",
+      "auto_discovered": true
+    }
+  },
+  "last_updated": "2025-08-02T23:21:47.337697",
+  "auto_update_enabled": true
+}

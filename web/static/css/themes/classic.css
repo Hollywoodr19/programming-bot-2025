@@ -1,0 +1,428 @@
+/*
+web/static/css/themes/classic.css - Klassisches Business Theme
+Professional, Clean, Corporate Look
+*/
+
+/* ===========================
+   KLASSISCHE FARB-VARIABLEN
+   =========================== */
+
+.theme-classic {
+    --bg-primary: #f8f9fa;
+    --bg-secondary: #ffffff;
+    --bg-card: #ffffff;
+    --bg-sidebar: #343a40;
+
+    --text-color: #212529;
+    --text-secondary: #6c757d;
+    --text-muted: #868e96;
+    --text-light: #ffffff;
+
+    --accent-primary: #007bff;
+    --accent-secondary: #0056b3;
+    --accent-success: #28a745;
+    --accent-warning: #ffc107;
+    --accent-danger: #dc3545;
+
+    --border-color: #dee2e6;
+    --border-dark: #adb5bd;
+    --shadow-light: 0 2px 4px rgba(0,0,0,0.1);
+    --shadow-medium: 0 4px 8px rgba(0,0,0,0.15);
+    --shadow-heavy: 0 8px 16px rgba(0,0,0,0.2);
+}
+
+/* ===========================
+   KLASSISCHER HINTERGRUND
+   =========================== */
+
+.theme-classic body {
+    background: var(--bg-primary);
+    color: var(--text-color);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ===========================
+   CORPORATE CONTAINER
+   =========================== */
+
+.theme-classic .container {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: var(--shadow-medium);
+    position: relative;
+}
+
+/* ===========================
+   PROFESSIONAL HEADER
+   =========================== */
+
+.theme-classic .header {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: var(--text-light);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    margin: -20px -20px 2rem -20px;
+    padding: 2rem;
+    position: relative;
+}
+
+.theme-classic .header::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 4px;
+    background: var(--accent-primary);
+    border-radius: 2px;
+}
+
+.theme-classic .logo {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-light);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    letter-spacing: -0.5px;
+}
+
+.theme-classic .status-indicator {
+    background: rgba(255,255,255,0.2);
+    color: var(--text-light);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.3);
+    font-weight: 500;
+}
+
+/* ===========================
+   BUSINESS CHAT-INTERFACE
+   =========================== */
+
+.theme-classic .chat-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-light);
+    border-radius: 8px;
+}
+
+.theme-classic .chat-messages {
+    background: #fafbfc;
+}
+
+.theme-classic .message-bubble {
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-light);
+    font-weight: 400;
+    line-height: 1.6;
+}
+
+.theme-classic .message-bubble.user {
+    background: var(--accent-primary);
+    color: var(--text-light);
+    border-color: var(--accent-secondary);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+}
+
+.theme-classic .message-bubble.bot {
+    background: var(--bg-secondary);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+/* ===========================
+   PROFESSIONAL INPUT
+   =========================== */
+
+.theme-classic .chat-input-container {
+    background: #f8f9fa;
+    border-top: 1px solid var(--border-color);
+    margin: 0 -20px -20px -20px;
+    padding: 1.5rem 2rem;
+    border-radius: 0 0 8px 8px;
+}
+
+.theme-classic .chat-input {
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    color: var(--text-color);
+    font-weight: 400;
+    transition: all 0.3s ease;
+}
+
+.theme-classic .chat-input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    background: #ffffff;
+}
+
+.theme-classic .chat-input::placeholder {
+    color: var(--text-muted);
+}
+
+/* ===========================
+   CORPORATE BUTTONS
+   =========================== */
+
+.theme-classic .btn {
+    background: var(--accent-primary);
+    color: var(--text-light);
+    border: none;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: var(--shadow-light);
+    transition: all 0.3s ease;
+}
+
+.theme-classic .btn:hover {
+    background: var(--accent-secondary);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-medium);
+}
+
+.theme-classic .btn:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-light);
+}
+
+.theme-classic .btn-secondary {
+    background: var(--text-secondary);
+    color: var(--text-light);
+}
+
+.theme-classic .btn-secondary:hover {
+    background: #5a6268;
+}
+
+/* ===========================
+   BUSINESS STATS
+   =========================== */
+
+.theme-classic .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-light);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-classic .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: var(--accent-primary);
+}
+
+.theme-classic .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-medium);
+    border-color: var(--accent-primary);
+}
+
+.theme-classic .stat-value {
+    color: var(--accent-primary);
+    font-weight: 700;
+}
+
+.theme-classic .stat-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ===========================
+   PROFESSIONAL FORMS
+   =========================== */
+
+.theme-classic .form-input {
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    color: var(--text-color);
+    transition: all 0.3s ease;
+}
+
+.theme-classic .form-input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.theme-classic .form-label {
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+/* ===========================
+   SCROLLBAR CLASSIC
+   =========================== */
+
+.theme-classic .chat-messages::-webkit-scrollbar {
+    width: 8px;
+}
+
+.theme-classic .chat-messages::-webkit-scrollbar-track {
+    background: #f1f3f4;
+}
+
+.theme-classic .chat-messages::-webkit-scrollbar-thumb {
+    background: var(--text-muted);
+    border-radius: 4px;
+}
+
+.theme-classic .chat-messages::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+
+/* ===========================
+   LOADING & STATUS CLASSIC
+   =========================== */
+
+.theme-classic .loading-spinner {
+    border-color: var(--border-color);
+    border-top-color: var(--accent-primary);
+}
+
+.theme-classic .status-dot {
+    background: var(--accent-success);
+}
+
+/* ===========================
+   TYPOGRAPHY ENHANCEMENT
+   =========================== */
+
+.theme-classic h1, .theme-classic h2, .theme-classic h3 {
+    color: var(--text-color);
+    font-weight: 700;
+}
+
+.theme-classic p {
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+.theme-classic strong {
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+.theme-classic code {
+    background: #f8f9fa;
+    color: var(--accent-primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    border: 1px solid var(--border-color);
+}
+
+/* ===========================
+   RESPONSIVE CLASSIC
+   =========================== */
+
+@media (max-width: 768px) {
+    .theme-classic .container {
+        margin: 10px;
+        border-radius: 8px;
+    }
+
+    .theme-classic .header {
+        margin: -10px -10px 1rem -10px;
+        padding: 1.5rem;
+        text-align: center;
+    }
+
+    .theme-classic .chat-input-container {
+        margin: 0 -10px -10px -10px;
+        padding: 1rem;
+    }
+
+    .theme-classic .logo {
+        font-size: 1.5rem;
+    }
+}
+
+/* ===========================
+   PROFESSIONAL UTILITIES
+   =========================== */
+
+.theme-classic .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: var(--shadow-light);
+}
+
+.theme-classic .badge {
+    background: var(--accent-primary);
+    color: var(--text-light);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.theme-classic .alert {
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    margin-bottom: 1rem;
+}
+
+.theme-classic .alert-success {
+    background: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+}
+
+.theme-classic .alert-warning {
+    background: #fff3cd;
+    border-color: #ffeaa7;
+    color: #856404;
+}
+
+.theme-classic .alert-danger {
+    background: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+/* ===========================
+   BUSINESS ANIMATIONS
+   =========================== */
+
+.theme-classic .fade-in-corporate {
+    animation: fadeInCorporate 0.6s ease-out;
+}
+
+@keyframes fadeInCorporate {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.theme-classic .slide-in-professional {
+    animation: slideInProfessional 0.5s ease-out;
+}
+
+@keyframes slideInProfessional {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}

@@ -1,1024 +1,1289 @@
-# main.py - Erweiterter Bot mit allen Features
-import json
+#!/usr/bin/env python3
+"""
+Programming Bot 2025 - Multi-User AI Assistant
+Flask-Only Version ohne FastAPI Konflikte
+"""
+
 import os
-import sqlite3
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
-import hashlib
-from dataclasses import dataclass, asdict
-import asyncio
-from pathlib import Path
-
-# Core imports
-from anthropic import Anthropic
-import tiktoken
-import git
-from git import Repo
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
-
-# FastAPI imports
-from fastapi import FastAPI, WebSocket, HTTPException, Depends, status, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
-import uvicorn
-
-# Projekt imports
-from config import Config
-from visualizations import add_visualization_endpoints
-
-
-# Erweiterte Datenmodelle
-@dataclass
-class CodeSnippet:
-    id: str
-    language: str
-    code: str
-    description: str
-    timestamp: str
-    tags: List[str]
-    file_path: Optional[str] = None
-    git_commit: Optional[str] = None
-    embedding_id: Optional[str] = None
-
-
-@dataclass
-class Conversation:
-    id: str
-    messages: List[Dict[str, str]]
-    summary: str
-    timestamp: str
-    tags: List[str]
-    embedding_id: Optional[str] = None
-
-
-class EnhancedProgrammingBot:
-    """Erweiterter Programmier-Bot mit Web-UI, Git-Integration und Vektor-DB"""
-
-    def __init__(self, api_key: str, db_path: str = "bot_memory.db",
-                 repo_path: str = None, chroma_path: str = "./chroma_db"):
-        self.client = Anthropic(api_key=api_key)
-        self.db_path = db_path
-        self.encoder = tiktoken.encoding_for_model("gpt-4")
-        self.max_context_tokens = 100000
-
-        # Git-Integration
-        self.repo_path = repo_path
-        self.repo = None
-        if repo_path and os.path.exists(repo_path):
-            try:
-                self.repo = Repo(repo_path)
-            except:
-                print(f"Warnung: {repo_path} ist kein Git-Repository")
-
-        # Vektor-Datenbank Setup
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        self.chroma_client = chromadb.PersistentClient(path=chroma_path)
-
-        # Collections für verschiedene Datentypen
-        self.code_collection = self.chroma_client.get_or_create_collection(
-            name="code_snippets",
-            metadata={"hnsw:space": "cosine"}
-        )
-        self.conv_collection = self.chroma_client.get_or_create_collection(
-            name="conversations",
-            metadata={"hnsw:space": "cosine"}
-        )
-
-        self.init_database()
-        self.websocket_connections = []
-
-    def init_database(self):
-        """Erweiterte Datenbank-Initialisierung"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Erweiterte Code-Snippets Tabelle
-        cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS code_snippets
-                       (
-                           id
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           language
-                           TEXT,
-                           code
-                           TEXT,
-                           description
-                           TEXT,
-                           timestamp
-                           TEXT,
-                           tags
-                           TEXT,
-                           file_path
-                           TEXT,
-                           git_commit
-                           TEXT,
-                           embedding_id
-                           TEXT
-                       )
-                       ''')
-
-        # Erweiterte Konversationen Tabelle
-        cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS conversations
-                       (
-                           id
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           messages
-                           TEXT,
-                           summary
-                           TEXT,
-                           timestamp
-                           TEXT,
-                           tags
-                           TEXT,
-                           embedding_id
-                           TEXT
-                       )
-                       ''')
-
-        cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS project_context
-                       (
-                           key
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           value
-                           TEXT,
-                           timestamp
-                           TEXT
-                       )
-                       ''')
-
-        # Git-Tracking Tabelle
-        cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS git_tracking
-                       (
-                           commit_hash
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           timestamp
-                           TEXT,
-                           message
-                           TEXT,
-                           files_changed
-                           TEXT,
-                           processed
-                           BOOLEAN
-                           DEFAULT
-                           FALSE
-                       )
-                       ''')
-
-        conn.commit()
-        conn.close()
-
-    def generate_id(self, content: str) -> str:
-        """Generiert eine eindeutige ID basierend auf Inhalt und Zeit"""
-        timestamp = datetime.now().isoformat()
-        hash_input = f"{content}{timestamp}"
-        return hashlib.md5(hash_input.encode()).hexdigest()[:8]
-
-    def create_embedding(self, text: str) -> List[float]:
-        """Erstellt Embedding für Text"""
-        return self.embedding_model.encode(text).tolist()
-
-    def save_code_snippet_with_embedding(self, code: str, language: str,
-                                         description: str, tags: List[str] = None,
-                                         file_path: str = None, git_commit: str = None):
-        """Speichert Code-Snippet mit Vektor-Embedding"""
-        snippet = CodeSnippet(
-            id=self.generate_id(code),
-            language=language,
-            code=code,
-            description=description,
-            timestamp=datetime.now().isoformat(),
-            tags=tags or [],
-            file_path=file_path,
-            git_commit=git_commit,
-            embedding_id=None
-        )
-
-        # Erstelle Embedding
-        embedding_text = f"{description}\n{code}"
-        embedding = self.create_embedding(embedding_text)
-
-        # Speichere in ChromaDB
-        self.code_collection.add(
-            embeddings=[embedding],
-            documents=[embedding_text],
-            metadatas=[{
-                "language": language,
-                "description": description,
-                "tags": json.dumps(tags or []),
-                "file_path": file_path or "",
-                "git_commit": git_commit or ""
-            }],
-            ids=[snippet.id]
-        )
-
-        snippet.embedding_id = snippet.id
-
-        # Speichere in SQLite
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO code_snippets 
-            (id, language, code, description, timestamp, tags, file_path, git_commit, embedding_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (snippet.id, snippet.language, snippet.code, snippet.description,
-              snippet.timestamp, json.dumps(snippet.tags), snippet.file_path,
-              snippet.git_commit, snippet.embedding_id))
-        conn.commit()
-        conn.close()
-
-        return snippet.id
-
-    def semantic_search_code(self, query: str, n_results: int = 5) -> List[CodeSnippet]:
-        """Semantische Suche nach Code-Snippets"""
-        query_embedding = self.create_embedding(query)
-
-        results = self.code_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results
-        )
-
-        if not results['ids'][0]:
-            return []
-
-        # Hole vollständige Snippets aus SQLite
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        snippets = []
-        for snippet_id in results['ids'][0]:
-            cursor.execute('SELECT * FROM code_snippets WHERE id = ?', (snippet_id,))
-            row = cursor.fetchone()
-            if row:
-                snippets.append(CodeSnippet(
-                    id=row[0],
-                    language=row[1],
-                    code=row[2],
-                    description=row[3],
-                    timestamp=row[4],
-                    tags=json.loads(row[5]),
-                    file_path=row[6],
-                    git_commit=row[7],
-                    embedding_id=row[8]
-                ))
-
-        conn.close()
-        return snippets
-
-    def track_git_changes(self):
-        """Trackt Änderungen im Git-Repository"""
-        if not self.repo:
-            return
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Hole bereits verarbeitete Commits
-        cursor.execute('SELECT commit_hash FROM git_tracking')
-        processed_commits = {row[0] for row in cursor.fetchall()}
-
-        # Verarbeite neue Commits
-        for commit in self.repo.iter_commits():
-            if commit.hexsha in processed_commits:
-                continue
-
-            # Speichere Commit-Info
-            files_changed = []
-            for item in commit.diff(commit.parents[0] if commit.parents else None):
-                files_changed.append({
-                    'path': item.a_path or item.b_path,
-                    'change_type': item.change_type
-                })
-
-            cursor.execute('''
-                           INSERT INTO git_tracking
-                               (commit_hash, timestamp, message, files_changed, processed)
-                           VALUES (?, ?, ?, ?, ?)
-                           ''', (commit.hexsha, commit.committed_datetime.isoformat(),
-                                 commit.message, json.dumps(files_changed), False))
-
-            # Verarbeite geänderte Code-Dateien
-            for item in commit.diff(commit.parents[0] if commit.parents else None):
-                if item.change_type in ['A', 'M']:  # Added or Modified
-                    file_path = item.a_path or item.b_path
-                    if file_path.endswith(('.py', '.js', '.java', '.cpp', '.go')):
-                        try:
-                            # Lese Dateiinhalt
-                            file_content = self.repo.odb.stream(item.a_blob.binsha).read().decode('utf-8')
-
-                            # Extrahiere Funktionen/Klassen (vereinfacht)
-                            language = file_path.split('.')[-1]
-                            description = f"Code aus {file_path} (Commit: {commit.message[:50]})"
-
-                            self.save_code_snippet_with_embedding(
-                                code=file_content[:1000],  # Erste 1000 Zeichen
-                                language=language,
-                                description=description,
-                                tags=["git", "auto-tracked"],
-                                file_path=file_path,
-                                git_commit=commit.hexsha
-                            )
-                        except Exception as e:
-                            print(f"Fehler beim Verarbeiten von {file_path}: {e}")
-
-            # Markiere als verarbeitet
-            cursor.execute('UPDATE git_tracking SET processed = TRUE WHERE commit_hash = ?',
-                           (commit.hexsha,))
-
-        conn.commit()
-        conn.close()
-
-    def save_conversation(self, messages: List[Dict[str, str]], summary: str = None, tags: List[str] = None):
-        """Speichert eine Konversation mit Embedding"""
-        if not summary:
-            # Automatische Zusammenfassung generieren
-            summary = self.generate_summary(messages)
-
-        conv = Conversation(
-            id=self.generate_id(str(messages)),
-            messages=messages,
-            summary=summary,
-            timestamp=datetime.now().isoformat(),
-            tags=tags or [],
-            embedding_id=None
-        )
-
-        # Erstelle Embedding für Konversation
-        conv_text = summary + "\n" + "\n".join([f"{m['role']}: {m['content'][:200]}" for m in messages[-3:]])
-        embedding = self.create_embedding(conv_text)
-
-        # Speichere in ChromaDB
-        self.conv_collection.add(
-            embeddings=[embedding],
-            documents=[conv_text],
-            metadatas=[{
-                "summary": summary,
-                "timestamp": conv.timestamp,
-                "tags": json.dumps(tags or [])
-            }],
-            ids=[conv.id]
-        )
-
-        conv.embedding_id = conv.id
-
-        # Speichere in SQLite
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO conversations 
-            (id, messages, summary, timestamp, tags, embedding_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (conv.id, json.dumps(conv.messages), conv.summary,
-              conv.timestamp, json.dumps(conv.tags), conv.embedding_id))
-        conn.commit()
-        conn.close()
-
-        return conv.id
-
-    def set_project_context(self, key: str, value: str):
-        """Speichert Projekt-Kontext"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO project_context (key, value, timestamp)
-            VALUES (?, ?, ?)
-        ''', (key, value, datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
-
-    def get_project_context(self) -> Dict[str, str]:
-        """Holt den gesamten Projekt-Kontext"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT key, value FROM project_context')
-        context = {row[0]: row[1] for row in cursor.fetchall()}
-        conn.close()
-        return context
-
-    def get_enhanced_context(self, query: str, max_tokens: int = 20000) -> str:
-        """Erweiterte Kontext-Suche mit semantischer Suche"""
-        context_parts = []
-        current_tokens = 0
-
-        # 1. Projekt-Kontext
-        project_ctx = self.get_project_context()
-        if project_ctx:
-            ctx_str = "=== PROJEKT KONTEXT ===\n"
-            for key, value in project_ctx.items():
-                ctx_str += f"{key}: {value}\n"
-            context_parts.append(ctx_str)
-            current_tokens += len(self.encoder.encode(ctx_str))
-
-        # 2. Semantische Code-Suche
-        semantic_snippets = self.semantic_search_code(query, n_results=5)
-        if semantic_snippets:
-            ctx_str = "\n=== RELEVANTE CODE (Semantische Suche) ===\n"
-            for snippet in semantic_snippets:
-                snippet_str = f"**{snippet.description}**"
-                if snippet.file_path:
-                    snippet_str += f" (Datei: {snippet.file_path})"
-                snippet_str += f"\n```{snippet.language}\n{snippet.code}\n```\n"
-
-                snippet_tokens = len(self.encoder.encode(snippet_str))
-                if current_tokens + snippet_tokens < max_tokens:
-                    ctx_str += snippet_str
-                    current_tokens += snippet_tokens
-            context_parts.append(ctx_str)
-
-        # 3. Semantische Konversationssuche
-        query_embedding = self.create_embedding(query)
-        conv_results = self.conv_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=3
-        )
-
-        if conv_results['ids'][0]:
-            ctx_str = "\n=== RELEVANTE DISKUSSIONEN (Semantische Suche) ===\n"
-            for conv_id in conv_results['ids'][0]:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
-                cursor.execute('SELECT summary FROM conversations WHERE id = ?', (conv_id,))
-                result = cursor.fetchone()
-                conn.close()
-
-                if result:
-                    conv_str = f"- {result[0]}\n"
-                    conv_tokens = len(self.encoder.encode(conv_str))
-                    if current_tokens + conv_tokens < max_tokens:
-                        ctx_str += conv_str
-                        current_tokens += conv_tokens
-            context_parts.append(ctx_str)
-
-        return "\n".join(context_parts)
-
-    def generate_summary(self, messages: List[Dict[str, str]]) -> str:
-        """Generiert eine Zusammenfassung einer Konversation"""
-        conversation_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages[-10:]])
-
-        response = self.client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=200,
-            messages=[{
-                "role": "user",
-                "content": f"Fasse diese Programmier-Diskussion in 1-2 Sätzen zusammen:\n\n{conversation_text}"
-            }]
-        )
-
-        return response.content[0].text
-
-    def chat(self, user_input: str, conversation_history: List[Dict[str, str]] = None) -> str:
-        """Hauptchat-Funktion mit Kontext-Integration"""
-        if conversation_history is None:
-            conversation_history = []
-
-        # Hole relevanten Kontext
-        context = self.get_enhanced_context(user_input)
-
-        # Erstelle System-Prompt
-        system_prompt = """Du bist ein hilfreicher Programmier-Assistent mit persistentem Gedächtnis. 
-Du hast Zugriff auf frühere Konversationen, Code-Snippets und Projekt-Kontext.
-Nutze dieses Wissen, um konsistente und kontextbezogene Hilfe zu leisten."""
-
-        # Füge Kontext zum User-Input hinzu
-        enhanced_input = user_input
-        if context:
-            enhanced_input = f"{context}\n\n=== AKTUELLE ANFRAGE ===\n{user_input}"
-
-        # Erstelle Messages für API
-        messages = conversation_history + [{"role": "user", "content": enhanced_input}]
-
-        # API-Aufruf
-        response = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=4000,
-            system=system_prompt,
-            messages=messages
-        )
-
-        return response.content[0].text
-
-    def export_memory(self, filepath: str):
-        """Exportiert das gesamte Gedächtnis als JSON"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Hole alle Daten
-        cursor.execute('SELECT * FROM code_snippets')
-        code_snippets = cursor.fetchall()
-
-        cursor.execute('SELECT * FROM conversations')
-        conversations = cursor.fetchall()
-
-        cursor.execute('SELECT * FROM project_context')
-        project_context = cursor.fetchall()
-
-        conn.close()
-
-        # Erstelle Export-Objekt
-        export_data = {
-            "export_date": datetime.now().isoformat(),
-            "code_snippets": [
-                {
-                    "id": row[0],
-                    "language": row[1],
-                    "code": row[2],
-                    "description": row[3],
-                    "timestamp": row[4],
-                    "tags": json.loads(row[5])
-                } for row in code_snippets
-            ],
-            "conversations": [
-                {
-                    "id": row[0],
-                    "messages": json.loads(row[1]),
-                    "summary": row[2],
-                    "timestamp": row[3],
-                    "tags": json.loads(row[4])
-                } for row in conversations
-            ],
-            "project_context": {row[0]: row[1] for row in project_context}
-        }
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(export_data, f, indent=2, ensure_ascii=False)
-
-        print(f"Gedächtnis exportiert nach: {filepath}")
-
-    async def broadcast_update(self, message: dict):
-        """Sendet Updates an alle verbundenen WebSocket-Clients"""
-        disconnected = []
-        for websocket in self.websocket_connections:
-            try:
-                await websocket.send_json(message)
-            except:
-                disconnected.append(websocket)
-
-        # Entferne getrennte Verbindungen
-        for ws in disconnected:
-            self.websocket_connections.remove(ws)
-
-
-# FastAPI App
-app = FastAPI(title="Programming Bot API")
-templates = Jinja2Templates(directory="templates")
-
-# Static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Bot-Instanz (wird beim Start initialisiert)
-bot = None
-
-
-# API Modelle
-class ChatMessage(BaseModel):
-    message: str
-    conversation_id: Optional[str] = None
-
-
-class CodeSnippetRequest(BaseModel):
-    code: str
-    language: str
-    description: str
-    tags: List[str] = []
-
-
-class ProjectContextRequest(BaseModel):
-    key: str
-    value: str
-
-
-# API Endpoints
-@app.on_event("startup")
-async def startup_event():
-    global bot
-    Config.init_directories()
-    bot = EnhancedProgrammingBot(
-        api_key=Config.ANTHROPIC_API_KEY,
-        db_path=Config.DB_PATH,
-        repo_path=Config.GIT_REPO_PATH,
-        chroma_path=Config.CHROMA_PATH
+import sys
+import json
+import logging
+from flask import Flask, request, render_template, jsonify, redirect, url_for, session, flash
+from datetime import datetime
+
+
+def get_user_bot_engine(user_id: str):
+    """Get or create bot engine for user - Fixed Version"""
+    global bot_engine
+
+    # For now, return the global bot_engine
+    # In the future, this could return user-specific engines
+    if bot_engine is None:
+        logger.error("❌ Bot engine not available")
+
+        # Return fallback engine
+        class FallbackEngine:
+            def get_user_projects(self, user_id):
+                return [{
+                    'id': 1,
+                    'name': 'Demo Project',
+                    'description': 'Fallback project',
+                    'language': 'python',
+                    'status': 'active',
+                    'created_at': '2025-01-01T00:00:00',
+                    'updated_at': '2025-01-01T00:00:00'
+                }]
+
+            def create_project(self, user_id, name, description="", language="python"):
+                return {
+                    'success': True,
+                    'project': {
+                        'id': 2,
+                        'name': name,
+                        'description': description,
+                        'language': language,
+                        'status': 'active',
+                        'created_at': '2025-01-01T00:00:00',
+                        'updated_at': '2025-01-01T00:00:00'
+                    }
+                }
+
+        return FallbackEngine()
+
+    return bot_engine
+
+
+# Configure logging with Windows compatibility
+if sys.platform == "win32":
+    import locale
+
+    try:
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    except:
+        try:
+            locale.setlocale(locale.LC_ALL, '')
+        except:
+            pass
+
+
+    # Windows-safe logging
+    class WindowsSafeFormatter(logging.Formatter):
+        def format(self, record):
+            message = super().format(record)
+            replacements = {
+                '✅': '[OK]', '❌': '[ERROR]', '⚠️': '[WARNING]', '🚀': '[START]',
+                '📍': '[SERVER]', '💻': '[PROG]', '💬': '[CHAT]', '🔧': '[DEBUG]',
+                '🤖': '[BOT]', '📊': '[DASH]', '📁': '[PROJ]', '🔍': '[REVIEW]'
+            }
+            for emoji, text in replacements.items():
+                message = message.replace(emoji, text)
+            return message
+
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(WindowsSafeFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('programming_bot.log', encoding='utf-8'),
+            handler
+        ]
+    )
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('programming_bot.log', encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ]
     )
 
-    # Füge Visualisierungs-Endpoints hinzu
-    add_visualization_endpoints(app, bot)
+logger = logging.getLogger(__name__)
 
-    # Starte Git-Tracking im Hintergrund
-    asyncio.create_task(periodic_git_tracking())
+# Initialize Flask app
+app = Flask(__name__, static_folder='web/static', static_url_path='/static')
+app.secret_key = 'programming-bot-2025-secret-key-change-in-production'
+
+# Global variables for modules
+auth_system = None
+bot_engine = None
+config = None
+session_manager = None
 
 
-async def periodic_git_tracking():
-    """Periodisches Git-Tracking alle 5 Minuten"""
-    while True:
+def load_session_manager():
+    """Load session manager if available"""
+    global session_manager
+    try:
+        from session_manager import get_session_manager
+        session_manager = get_session_manager()
+        logger.info("✅ Session Manager loaded successfully")
+        return True
+    except ImportError as e:
+        logger.warning(f"⚠️ Session Manager not found: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Session Manager failed to load: {e}")
+        return False
+
+
+def load_modules():
+    """Load all required modules with Smart Config System"""
+    global auth_system, bot_engine, config
+
+    # Load session manager
+    load_session_manager()
+
+    # Load Smart Configuration System
+    try:
+        from config import get_config, get_current_claude_model, get_claude_config
+        config = get_config()
+        logger.info("✅ Smart Config System loaded successfully")
+
+        # Print startup info with model status
+        if hasattr(config, 'print_startup_info'):
+            config.print_startup_info()
+
+        # Show current Claude model from centralized system
+        current_model = get_current_claude_model()
+        logger.info(f"🤖 Using Claude Model: {current_model}")
+
+    except ImportError as e:
+        logger.warning(f"❌ Smart Config not found: {e}")
+
+        # Create minimal config fallback
+        class Config:
+            DATABASE_PATH = "bot_data.db"
+            CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
+            CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-opus-4-20250514')
+            SECRET_KEY = 'fallback-secret-key'
+            HOST = '0.0.0.0'
+            PORT = 8100
+            DEBUG = False
+
+            def get_claude_config(self):
+                return {
+                    'api_key': self.CLAUDE_API_KEY,
+                    'model': self.CLAUDE_MODEL,
+                    'max_tokens': 1000
+                }
+
+        config = Config()
+
+    # Load authentication system
+    try:
+        from auth_system import AuthenticationSystem
+        auth_system = AuthenticationSystem()
+        logger.info("✅ Auth system loaded successfully")
+    except ImportError as e:
+        logger.warning(f"❌ Auth system not found, using fallback: {e}")
+        from werkzeug.security import check_password_hash, generate_password_hash
+
+        class SimpleAuthSystem:
+            def __init__(self):
+                self.users = {
+                    'admin': {
+                        'password_hash': generate_password_hash('admin123'),
+                        'display_name': 'Administrator',
+                        'role': 'admin'
+                    }
+                }
+
+            def authenticate_user(self, username, password):
+                user = self.users.get(username)
+                if user and check_password_hash(user['password_hash'], password):
+                    return {
+                        'username': username,
+                        'display_name': user['display_name'],
+                        'role': user['role']
+                    }
+                return None
+
+            def register_user(self, username, password, email=None, display_name=None):
+                """Fallback register user method"""
+                if username in self.users:
+                    return {'success': False, 'error': 'Username bereits vergeben'}
+
+                self.users[username] = {
+                    'password_hash': generate_password_hash(password),
+                    'display_name': display_name or username,
+                    'role': 'user',
+                    'email': email
+                }
+
+                return {
+                    'success': True,
+                    'user': {
+                        'username': username,
+                        'display_name': display_name or username,
+                        'role': 'user'
+                    }
+                }
+
+            def check_username_available(self, username):
+                return username not in self.users
+
+        auth_system = SimpleAuthSystem()
+
+    # Load bot engine with Smart Config
+    try:
+        from core.bot_engine import ClaudeAPIEngine
+        # Get Claude config from Smart Config System
+        claude_config = config.get_claude_config() if hasattr(config, 'get_claude_config') else {
+            'api_key': getattr(config, 'CLAUDE_API_KEY', None),
+            'model': getattr(config, 'CLAUDE_MODEL', 'claude-opus-4-20250514'),
+            'max_tokens': 1000
+        }
+
+        bot_engine = ClaudeAPIEngine(
+            api_key=claude_config['api_key'],
+            model=claude_config.get('model'),
+            max_tokens=claude_config.get('max_tokens', 1000)
+        )
+        logger.info("✅ Claude API Bot Engine loaded with Smart Config")
+
+    except ImportError as e:
+        logger.warning(f"❌ Bot engine not found, using enhanced fallback: {e}")
+
+        # Enhanced fallback bot engine
+        class EnhancedFallbackEngine:
+            def __init__(self):
+                self.message_count = 0
+                self.user_context = {}
+                self.projects = {}
+                self.chat_history = {}
+
+            def process_message(self, message, user_context=None):
+                self.message_count += 1
+                context = user_context or self.user_context
+                user_id = context.get('user_id', 'anonymous')
+                mode = context.get('mode', 'programming')
+                display_name = context.get('display_name', 'Freund')
+
+                # Save message to history
+                if user_id not in self.chat_history:
+                    self.chat_history[user_id] = []
+
+                message_lower = message.lower()
+
+                # Enhanced responses based on mode
+                if mode == 'casual' or mode == 'chat_only':
+                    if any(word in message_lower for word in ["hallo", "hi", "hey"]):
+                        response = f"Hallo {display_name}! Schön dich zu sehen! Wie geht es dir denn heute?"
+                    elif any(word in message_lower for word in ["wie geht", "geht es"]):
+                        response = "Mir geht es super, danke der Nachfrage! Wie geht es dir denn?"
+                    elif "witz" in message_lower:
+                        jokes = [
+                            "Warum nehmen Geister keine Drogen? Weil sie schon high-spirited sind!",
+                            "Was ist grün und klopft an der Tür? Ein Klopfsalat!",
+                            "Warum können Geister so schlecht lügen? Weil man durch sie hindurchsehen kann!"
+                        ]
+                        import random
+                        response = random.choice(jokes)
+                    elif "claude" in message_lower and "verbunden" in message_lower:
+                        current_model = getattr(config, 'CLAUDE_MODEL', 'Fallback Mode')
+                        response = f"Ich verwende das Model: {current_model}. Leider läuft gerade der Fallback-Modus, da die Claude API nicht verfügbar ist."
+                    else:
+                        response = f"Das ist interessant, {display_name}! Erzähl mir mehr davon!"
+
+                elif mode == 'help':
+                    response = f"Gerne helfe ich dir dabei, {display_name}! Zu deiner Frage '{message}': Lass mich das für dich klären..."
+
+                elif mode == 'learn':
+                    response = f"Sehr gerne erkläre ich dir das, {display_name}! Das Thema '{message}' ist wirklich faszinierend. Lass uns das zusammen entdecken!"
+
+                else:  # programming mode
+                    if any(word in message_lower for word in ["def ", "function", "class ", "import"]):
+                        response = "Das sieht nach Code aus! Gerne schaue ich mir das für dich an. Soll ich es analysieren?"
+                    elif "projekt" in message_lower:
+                        response = "Großartig! Lass uns ein neues Projekt starten. Was für eine Anwendung möchtest du erstellen?"
+                    elif any(word in message_lower for word in ["hallo", "hi", "hey"]):
+                        response = f"Hallo {display_name}! Wie kann ich dir beim Programmieren helfen?"
+                    elif "claude" in message_lower and ("modell" in message_lower or "model" in message_lower):
+                        current_model = getattr(config, 'CLAUDE_MODEL', 'Unbekannt')
+                        response = f"Ich bin konfiguriert für das Claude Model: {current_model}. Derzeit läuft der Fallback-Modus."
+                    else:
+                        response = f"Interessant! Ich verstehe: '{message}'. Wie kann ich dir dabei helfen?"
+
+                # Save to history
+                self.chat_history[user_id].append({
+                    'message': message,
+                    'response': response,
+                    'timestamp': datetime.now().isoformat(),
+                    'mode': mode
+                })
+
+                return response
+
+            def create_project(self, name, description, language, user_id):
+                project_id = f"project_{hash(f'{user_id}_{name}')}"
+
+                if user_id not in self.projects:
+                    self.projects[user_id] = []
+
+                project = {
+                    'id': project_id,
+                    'name': name,
+                    'description': description,
+                    'language': language,
+                    'user_id': user_id,
+                    'created_at': datetime.now().isoformat()
+                }
+
+                self.projects[user_id].append(project)
+                return project_id
+
+            def get_user_projects(self, user_id):
+                return self.projects.get(user_id, [])
+
+            def analyze_code(self, code, language="python"):
+                lines = code.split('\n')
+                return {
+                    'success': True,
+                    'analysis': f"Code-Analyse: {len(lines)} Zeilen {language} Code. Struktur sieht gut aus! (Fallback-Analyse)",
+                    'quality_score': 75,
+                    'suggestions': [
+                        'Füge mehr Kommentare für bessere Dokumentation hinzu',
+                        'Erwäge Error-Handling zu implementieren',
+                        'Überprüfe Variablen-Namenskonventionen'
+                    ]
+                }
+
+            def get_chat_history(self, user_id, limit=50):
+                return self.chat_history.get(user_id, [])[-limit:]
+
+            def get_metrics(self, user_id=None):
+                if user_id:
+                    history = self.chat_history.get(user_id, [])
+                    projects = self.projects.get(user_id, [])
+                    current_model = getattr(config, 'CLAUDE_MODEL', 'Fallback Mode')
+                    return {
+                        'user_messages': len(history),
+                        'user_projects': len(projects),
+                        'api_status': f'Fallback Mode (Configured: {current_model})'
+                    }
+                else:
+                    total_messages = sum(len(h) for h in self.chat_history.values())
+                    total_projects = sum(len(p) for p in self.projects.values())
+                    return {
+                        'total_messages': total_messages,
+                        'total_projects': total_projects,
+                        'active_users': len(self.chat_history),
+                        'api_status': 'Fallback Mode',
+                        'uptime': 'Running'
+                    }
+
+        bot_engine = EnhancedFallbackEngine()
+
+
+# Create directories
+os.makedirs('templates', exist_ok=True)
+os.makedirs('web/static/js', exist_ok=True)
+os.makedirs('web/static/css', exist_ok=True)
+os.makedirs('data', exist_ok=True)
+
+
+# Routes
+@app.route('/')
+def index():
+    """Main landing page - login"""
+    try:
+        return render_template('login.html')
+    except Exception as e:
+        logger.error(f"Template error: {e}")
+        return """
+        <!DOCTYPE html>
+        <html><head><title>Programming Bot 2025 - Login</title>
+        <style>
+        body { font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .login-form { max-width: 300px; margin: 30px auto; }
+        input { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; }
+        button { width: 100%; padding: 15px; background: #00d4aa; color: white; border: none; border-radius: 10px; cursor: pointer; }
+        </style></head>
+        <body>
+        <h1>🤖 Programming Bot 2025</h1>
+        <p>Template not found. Using fallback login.</p>
+        <form method="POST" action="/login" class="login-form">
+            <input type="text" name="username" placeholder="Username: admin" required>
+            <input type="password" name="password" placeholder="Password: admin123" required>
+            <button type="submit">🚀 Login</button>
+        </form>
+        </body></html>
+        """
+
+
+# Replace the login route in your main.py with this version:
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Enhanced login route with universal session recovery"""
+    if request.method == 'GET':
+        return redirect(url_for('index'))
+
+    try:
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+
+        if not username or not password:
+            return redirect(url_for('index'))
+
+        user = auth_system.authenticate_user(username, password)
+
+        if user:
+            session['user'] = user
+            session['logged_in'] = True
+            logger.info(f"User {username} logged in successfully")
+
+            # UNIVERSAL SESSION RECOVERY CHECK - For ALL users
+            recovery_data = None
+            show_session_recovery = False
+
+            if session_manager:
+                try:
+                    logger.info(f"🔍 Checking session recovery for user: {username}")
+
+                    # Get recent sessions with meaningful activity
+                    recovery_data = session_manager.get_session_recovery_data(username)
+
+                    if recovery_data:
+                        logger.info(f"📊 Recovery data found: {recovery_data}")
+
+                        # Check if there are meaningful sessions to recover
+                        if recovery_data.get('has_sessions', False):
+                            sessions = recovery_data.get('sessions', [])
+
+                            # Filter for sessions with actual work
+                            meaningful_sessions = []
+                            for sess in sessions:
+                                # Check if session has meaningful content
+                                if (sess.get('messages_count', 0) > 1 or
+                                        sess.get('project_id') or
+                                        sess.get('code_reviews_count', 0) > 0 or
+                                        sess.get('last_active')):
+                                    meaningful_sessions.append(sess)
+
+                            if meaningful_sessions:
+                                show_session_recovery = True
+                                recovery_data['meaningful_sessions'] = meaningful_sessions
+                                recovery_data['session_count'] = len(meaningful_sessions)
+                                logger.info(f"✅ Found {len(meaningful_sessions)} recoverable sessions")
+                            else:
+                                logger.info("ℹ️ No meaningful sessions found for recovery")
+                        else:
+                            logger.info("ℹ️ No sessions available for recovery")
+                    else:
+                        logger.info("ℹ️ No recovery data available")
+
+                except Exception as e:
+                    logger.error(f"❌ Session recovery check failed: {e}")
+
+            # UNIVERSAL SESSION RECOVERY - Show for ALL users
+            if not show_session_recovery:
+                logger.info(f"🎭 Activating universal session recovery for user: {username}")
+
+                # Create a session entry for this login if session manager available
+                if session_manager:
+                    try:
+                        # Create a new session for this login
+                        demo_session_id = session_manager.create_new_session(
+                            username,
+                            f"Session {datetime.now().strftime('%d.%m %H:%M')}",
+                            "general"
+                        )
+
+                        # Add a welcome message to make it meaningful
+                        session_manager.save_chat_message(
+                            demo_session_id,
+                            username,
+                            "Hallo! Wie kann ich dir beim Programmieren helfen?",
+                            f"Willkommen {user.get('display_name', username)}! Ich bin dein KI-Programmierassistent. Möchtest du ein neues Projekt starten oder hast du Fragen zum Programmieren?",
+                            {'mode': 'welcome', 'timestamp': datetime.now().isoformat()}
+                        )
+
+                        logger.info(f"✅ Created welcome session: {demo_session_id}")
+
+                    except Exception as e:
+                        logger.error(f"❌ Failed to create welcome session: {e}")
+
+                # ALWAYS show session recovery modal for better UX
+                recovery_data = {
+                    'has_sessions': False,  # No previous sessions
+                    'show_welcome': True,  # Show welcome modal instead
+                    'user_name': user.get('display_name', username),
+                    'options': [
+                        {
+                            'type': 'new_project',
+                            'title': 'Neues Projekt starten',
+                            'description': 'Erstelle ein neues Programmierprojekt',
+                            'icon': '✨',
+                            'action': 'create_project'
+                        },
+                        {
+                            'type': 'explore_projects',
+                            'title': 'Projekte erkunden',
+                            'description': 'Schaue dir deine bestehenden Projekte an',
+                            'icon': '📁',
+                            'action': 'show_projects'
+                        },
+                        {
+                            'type': 'free_chat',
+                            'title': 'Freier Chat',
+                            'description': 'Stelle Fragen zum Programmieren',
+                            'icon': '💬',
+                            'action': 'start_chat'
+                        }
+                    ],
+                    'welcome_message': f"Willkommen zurück, {user.get('display_name', username)}! Wie möchtest du heute starten?"
+                }
+                show_session_recovery = True
+                logger.info("✅ Universal session recovery modal activated")
+
+            # Store recovery data in session for app interface
+            if show_session_recovery and recovery_data:
+                session['show_session_recovery'] = True
+                session['recovery_data'] = recovery_data
+                logger.info("🔄 Session recovery will be shown")
+                if recovery_data:
+                    if recovery_data.get('has_sessions'):
+                        logger.info(
+                            f"📊 Recovery type: Previous sessions ({recovery_data.get('session_count', 0)} sessions)")
+                    else:
+                        logger.info(f"📊 Recovery type: Welcome modal")
+            else:
+                session['show_session_recovery'] = False
+                session['recovery_data'] = None
+                logger.info("➡️ No session recovery needed")
+
+            redirect_to = request.args.get('redirect', '/app')
+            return redirect(redirect_to)
+        else:
+            logger.warning(f"Failed login attempt for user: {username}")
+            return redirect(url_for('index'))
+
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return redirect(url_for('index'))
+
+
+@app.route('/app')
+def app_interface():
+    """Enhanced app interface with session recovery"""
+    if 'user' not in session:
+        return redirect(url_for('login', redirect='/app'))
+
+    try:
+        user = session['user']
+
+        # Get recovery data from session (set during login)
+        show_session_recovery = session.pop('show_session_recovery', False)
+        recovery_data = session.pop('recovery_data', None)
+
+        logger.info(f"🎨 Rendering app for {user['username']}")
+        logger.info(f"🔄 Show recovery: {show_session_recovery}")
+        logger.info(f"📊 Recovery data: {recovery_data is not None}")
+
+        if recovery_data:
+            logger.info(f"📊 Recovery sessions count: {recovery_data.get('session_count', 0)}")
+
+        return render_template('app.html',
+                               user=user,
+                               mode='programming',
+                               show_session_recovery=show_session_recovery,
+                               recovery_data=recovery_data)
+    except Exception as e:
+        logger.error(f"App template error: {e}")
+        return f"""
+        <html><body style="font-family: Arial; padding: 20px;">
+        <h1>Programming Bot - {session['user']['display_name']}</h1>
+        <p>Template not found. Please create templates/app.html</p>
+        <p>Error: {e}</p>
+        <p>Show recovery: {session.get('show_session_recovery', False)}</p>
+        <a href="/logout">Logout</a>
+        </body></html>
+        """
+
+
+@app.route('/chat')
+def chat_interface():
+    """Chat-Only interface"""
+    if 'user' not in session:
+        return redirect(url_for('login', redirect='/chat'))
+
+    try:
+        user = type('User', (), session['user'])()
+        return render_template('app.html', user=user, mode='chat_only')
+    except Exception as e:
+        logger.error(f"Template error: {e}")
+        return f"""
+        <html><body style="font-family: Arial; padding: 20px;">
+        <h1>Chat-Only Bot - {session['user']['display_name']}</h1>
+        <p>Template not found. Please create templates/app.html</p>
+        <p>Error: {e}</p>
+        <a href="/logout">Logout</a>
+        </body></html>
+        """
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Handle user registration"""
+    if request.method == 'POST':
         try:
-            bot.track_git_changes()
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            confirm_password = request.form.get('confirm_password', '')
+            email = request.form.get('email', '').strip()
+            display_name = request.form.get('display_name', '').strip()
+
+            # Basic validation
+            error = None
+
+            # Username validation
+            if not username or len(username) < 3:
+                error = "Benutzername muss mindestens 3 Zeichen haben"
+            elif len(username) > 50:
+                error = "Benutzername darf maximal 50 Zeichen haben"
+
+            # Password validation
+            elif not password or len(password) < 6:
+                error = "Passwort muss mindestens 6 Zeichen haben"
+
+            # Password confirmation
+            elif password != confirm_password:
+                error = "Passwörter stimmen nicht überein"
+
+            # E-Mail validation (only if provided)
+            elif email:
+                import re
+                email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                if not re.match(email_pattern, email):
+                    error = "Bitte geben Sie eine gültige E-Mail-Adresse ein"
+
+            if not error:
+                # Attempt registration
+                result = auth_system.register_user(username, email, password, display_name)
+
+                if result.get('success'):
+                    logger.info(f"✅ New user registered: {username}")
+
+                    # Auto-login after successful registration
+                    # Use authenticate_user to get proper user dict
+                    user_dict = auth_system.authenticate_user(username, password)
+
+                    if user_dict:
+                        session['user'] = user_dict
+                        session['logged_in'] = True
+                        logger.info(f"✅ Auto-login successful for: {username}")
+                        return redirect(url_for('app_interface'))
+                    else:
+                        # Registration succeeded but auto-login failed
+                        logger.warning(f"⚠️ Registration OK but auto-login failed for: {username}")
+                        return redirect(url_for('index'))  # Go to login page
+                else:
+                    error = result.get('error', 'Registrierung fehlgeschlagen')
+
+            # Return registration page with error
+            try:
+                return render_template('register.html', error=error,
+                                     username=username, email=email, display_name=display_name)
+            except:
+                return f"""
+                <!DOCTYPE html>
+                <html><head><title>Registration Error</title>
+                <style>
+                body {{ font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+                .register-form {{ max-width: 400px; margin: 30px auto; }}
+                input {{ width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; }}
+                button {{ width: 100%; padding: 15px; background: #6c5ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }}
+                .error {{ color: #ff6b6b; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 5px; margin: 10px 0; }}
+                </style></head>
+                <body>
+                <h1>🤖 Programming Bot - Registrierung</h1>
+                <div class="error">{error}</div>
+                <form method="POST" class="register-form">
+                    <input type="text" name="username" placeholder="Benutzername (min. 3 Zeichen)" required minlength="3" value="{username}">
+                    <input type="email" name="email" placeholder="E-Mail (optional)" value="{email}">
+                    <input type="text" name="display_name" placeholder="Anzeigename (optional)" value="{display_name}">
+                    <input type="password" name="password" placeholder="Passwort (min. 6 Zeichen)" required minlength="6">
+                    <input type="password" name="confirm_password" placeholder="Passwort bestätigen" required minlength="6">
+                    <button type="submit">✨ Registrieren</button>
+                </form>
+                <p><a href="/" style="color: #00d4aa;">Bereits ein Konto? Anmelden</a></p>
+                </body></html>
+                """
+
         except Exception as e:
-            print(f"Fehler beim Git-Tracking: {e}")
-        await asyncio.sleep(300)  # 5 Minuten
+            logger.error(f"❌ Registration error: {e}")
+            error = "Ein unerwarteter Fehler ist aufgetreten"
+            try:
+                return render_template('register.html', error=error)
+            except:
+                return redirect(url_for('index'))
+
+    # GET request - show registration form
+    try:
+        return render_template('register.html')
+    except:
+        return """
+        <!DOCTYPE html>
+        <html><head><title>Programming Bot - Registrierung</title>
+        <style>
+        body { font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .register-form { max-width: 400px; margin: 30px auto; }
+        input { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; }
+        button { width: 100%; padding: 15px; background: #6c5ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }
+        </style></head>
+        <body>
+        <h1>🤖 Programming Bot - Registrierung</h1>
+        <p>Erstelle einen neuen Account</p>
+        <form method="POST" class="register-form">
+            <input type="text" name="username" placeholder="Benutzername (min. 3 Zeichen)" required minlength="3">
+            <input type="email" name="email" placeholder="E-Mail (optional)">
+            <input type="text" name="display_name" placeholder="Anzeigename (optional)">
+            <input type="password" name="password" placeholder="Passwort (min. 6 Zeichen)" required minlength="6">
+            <input type="password" name="confirm_password" placeholder="Passwort bestätigen" required minlength="6">
+            <button type="submit">✨ Registrieren</button>
+        </form>
+        <p><a href="/" style="color: #00d4aa;">Bereits ein Konto? Anmelden</a></p>
+        </body></html>
+        """
 
 
-@app.get("/", response_class=HTMLResponse)
-async def read_root():
+@app.route('/api/check-username', methods=['POST'])
+def check_username():
+    """API endpoint to check username availability"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+
+        if len(username) < 3:
+            return jsonify({'available': False, 'message': 'Username zu kurz'})
+
+        available = auth_system.check_username_available(username)
+        return jsonify({
+            'available': available,
+            'message': 'Username verfügbar' if available else 'Username bereits vergeben'
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Username check error: {e}")
+        return jsonify({'available': False, 'message': 'Fehler bei der Prüfung'})
+
+
+@app.route('/logout')
+def logout():
+    """Handle user logout"""
+    username = session.get('user', {}).get('username', 'Unknown')
+    session.clear()
+    logger.info(f"User {username} logged out")
+    return redirect(url_for('index'))
+
+
+# Debug Routes
+@app.route('/debug/session-recovery')
+def debug_session_recovery():
+    """Debug Session Recovery System"""
+    if 'user' not in session:
+        return "Not logged in"
+
+    user_id = session['user']['username']
+
+    debug_info = {
+        'user_id': user_id,
+        'session_manager_available': session_manager is not None,
+        'session_manager_type': type(session_manager).__name__ if session_manager else None
+    }
+
+    if session_manager:
+        try:
+            recovery_data = session_manager.get_session_recovery_data(user_id)
+            debug_info['recovery_data'] = recovery_data
+            debug_info['recovery_data_type'] = type(recovery_data).__name__
+            debug_info['has_sessions'] = recovery_data.get('has_sessions', False) if recovery_data else False
+        except Exception as e:
+            debug_info['session_manager_error'] = str(e)
+
     return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Programming Bot</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-        <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
-        <script src="https://d3js.org/d3.v7.min.js"></script>
-    </head>
-    <body class="bg-gray-900 text-gray-100">
-        <div class="container mx-auto p-4">
-            <h1 class="text-3xl font-bold mb-6">🤖 Programming Bot mit Gedächtnis</h1>
+    <h1>🔍 Session Recovery Debug</h1>
+    <pre>{json.dumps(debug_info, indent=2, default=str)}</pre>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <!-- Chat -->
-                <div class="lg:col-span-2 bg-gray-800 rounded-lg p-4">
-                    <h2 class="text-xl font-semibold mb-4">Chat</h2>
-                    <div id="chat-messages" class="h-96 overflow-y-auto mb-4 p-4 bg-gray-700 rounded"></div>
-                    <div class="flex gap-2">
-                        <input type="text" id="chat-input" 
-                            class="flex-1 p-2 bg-gray-700 rounded border border-gray-600 text-white"
-                            placeholder="Stelle eine Frage...">
-                        <button onclick="sendMessage()" 
-                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">
-                            Senden
-                        </button>
-                    </div>
-                </div>
+    <h2>Test Session Recovery</h2>
+    <button onclick="testSessionRecovery()">Test Recovery Check</button>
 
-                <!-- Sidebar -->
-                <div class="space-y-4">
-                    <!-- Code Snippet Speichern -->
-                    <div class="bg-gray-800 rounded-lg p-4">
-                        <h3 class="text-lg font-semibold mb-2">Code Speichern</h3>
-                        <textarea id="code-input" class="w-full p-2 bg-gray-700 rounded mb-2 text-white" 
-                            rows="4" placeholder="Code hier einfügen..."></textarea>
-                        <input type="text" id="code-lang" class="w-full p-2 bg-gray-700 rounded mb-2 text-white" 
-                            placeholder="Sprache (z.B. python)">
-                        <input type="text" id="code-desc" class="w-full p-2 bg-gray-700 rounded mb-2 text-white" 
-                            placeholder="Beschreibung">
-                        <button onclick="saveCode()" 
-                            class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded">
-                            Speichern
-                        </button>
-                    </div>
+    <div id="test-result"></div>
 
-                    <!-- Projekt Kontext -->
-                    <div class="bg-gray-800 rounded-lg p-4">
-                        <h3 class="text-lg font-semibold mb-2">Projekt Kontext</h3>
-                        <input type="text" id="ctx-key" class="w-full p-2 bg-gray-700 rounded mb-2 text-white" 
-                            placeholder="Key">
-                        <input type="text" id="ctx-value" class="w-full p-2 bg-gray-700 rounded mb-2 text-white" 
-                            placeholder="Value">
-                        <button onclick="setContext()" 
-                            class="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded">
-                            Setzen
-                        </button>
-                    </div>
-
-                    <!-- Suche -->
-                    <div class="bg-gray-800 rounded-lg p-4">
-                        <h3 class="text-lg font-semibold mb-2">Code Suchen</h3>
-                        <input type="text" id="search-query" class="w-full p-2 bg-gray-700 rounded mb-2 text-white" 
-                            placeholder="Suchbegriff...">
-                        <button onclick="searchCode()" 
-                            class="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded">
-                            Suchen
-                        </button>
-                        <div id="search-results" class="mt-2 text-sm"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Visualisierungen -->
-            <div class="mt-8">
-                <h2 class="text-2xl font-bold mb-4">📈 Projekt-Visualisierungen</h2>
-
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <button onclick="showDependencies()" 
-                        class="p-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-center">
-                        <span class="text-3xl">🕸️</span><br>
-                        Abhängigkeiten
-                    </button>
-
-                    <button onclick="showMetrics()" 
-                        class="p-4 bg-green-600 hover:bg-green-700 rounded-lg text-center">
-                        <span class="text-3xl">📊</span><br>
-                        Code Metriken
-                    </button>
-
-                    <button onclick="showStructure()" 
-                        class="p-4 bg-purple-600 hover:bg-purple-700 rounded-lg text-center">
-                        <span class="text-3xl">🌳</span><br>
-                        Projekt-Struktur
-                    </button>
-                </div>
-
-                <div id="visualization-container" class="mt-4 bg-gray-800 rounded-lg p-4 hidden">
-                    <div id="viz-content"></div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            let ws = null;
-            let conversationHistory = [];
-
-            // WebSocket Verbindung - Port 8100!
-            function connectWebSocket() {{
-                ws = new WebSocket('ws://localhost:{Config.PORT}/ws');
-
-                ws.onmessage = (event) => {{
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'chat_response') {{
-                        addMessage('bot', data.content);
-                    }} else if (data.type === 'update') {{
-                        console.log('Update:', data);
-                    }}
-                }};
-
-                ws.onclose = () => {{
-                    console.log('WebSocket Verbindung geschlossen. Versuche Neuverbindung...');
-                    setTimeout(connectWebSocket, 3000);
-                }};
-
-                ws.onerror = (error) => {{
-                    console.error('WebSocket Fehler:', error);
-                }};
-
-                ws.onopen = () => {{
-                    console.log('WebSocket verbunden auf Port {Config.PORT}');
-                }};
-            }}
-
-            connectWebSocket();
-
-            function addMessage(role, content) {{
-                const messagesDiv = document.getElementById('chat-messages');
-                const messageDiv = document.createElement('div');
-                messageDiv.className = role === 'user' ? 'mb-2 text-blue-400' : 'mb-2 text-green-400';
-                messageDiv.innerHTML = `<strong>${{role === 'user' ? 'Du' : 'Bot'}}:</strong> ${{content}}`;
-                messagesDiv.appendChild(messageDiv);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-                conversationHistory.push({{role, content}});
-            }}
-
-            async function sendMessage() {{
-                const input = document.getElementById('chat-input');
-                const message = input.value.trim();
-                if (!message) return;
-
-                addMessage('user', message);
-                input.value = '';
-
-                const response = await fetch('/api/chat', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{message, conversation_history: conversationHistory}})
-                }});
-
-                const data = await response.json();
-                addMessage('assistant', data.response);
-            }}
-
-            async function saveCode() {{
-                const code = document.getElementById('code-input').value;
-                const language = document.getElementById('code-lang').value;
-                const description = document.getElementById('code-desc').value;
-
-                const response = await fetch('/api/code', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{code, language, description}})
-                }});
-
-                if (response.ok) {{
-                    alert('Code gespeichert!');
-                    document.getElementById('code-input').value = '';
-                    document.getElementById('code-lang').value = '';
-                    document.getElementById('code-desc').value = '';
-                }}
-            }}
-
-            async function setContext() {{
-                const key = document.getElementById('ctx-key').value;
-                const value = document.getElementById('ctx-value').value;
-
-                const response = await fetch('/api/context', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{key, value}})
-                }});
-
-                if (response.ok) {{
-                    alert('Kontext gesetzt!');
-                    document.getElementById('ctx-key').value = '';
-                    document.getElementById('ctx-value').value = '';
-                }}
-            }}
-
-            async function searchCode() {{
-                const query = document.getElementById('search-query').value;
-
-                const response = await fetch(`/api/search?query=${{encodeURIComponent(query)}}`);
-                const data = await response.json();
-
-                const resultsDiv = document.getElementById('search-results');
-                resultsDiv.innerHTML = '';
-
-                data.results.forEach(snippet => {{
-                    const div = document.createElement('div');
-                    div.className = 'p-2 bg-gray-700 rounded mb-2';
-                    div.innerHTML = `<strong>${{snippet.description}}</strong><br>
-                        <code class="text-xs">${{snippet.language}}</code>`;
-                    resultsDiv.appendChild(div);
-                }});
-            }}
-
-            // Visualisierungs-Funktionen
-            async function showDependencies() {{
-                const container = document.getElementById('visualization-container');
-                const content = document.getElementById('viz-content');
-
-                container.classList.remove('hidden');
-                content.innerHTML = '<p>Lade Abhängigkeits-Graph...</p>';
-
-                const response = await fetch('/api/visualize/dependencies');
-                const data = await response.json();
-
-                content.innerHTML = '<iframe src="/static/dependency_graph.html" width="100%" height="600px" style="border:none;"></iframe>';
-            }}
-
-            async function showMetrics() {{
-                const container = document.getElementById('visualization-container');
-                const content = document.getElementById('viz-content');
-
-                container.classList.remove('hidden');
-                content.innerHTML = '<p>Lade Metriken-Dashboard...</p>';
-
-                const response = await fetch('/api/visualize/metrics');
-                const data = await response.json();
-
-                content.innerHTML = '<iframe src="/static/metrics_dashboard.html" width="100%" height="800px" style="border:none;"></iframe>';
-            }}
-
-            async function showStructure() {{
-                const container = document.getElementById('visualization-container');
-                const content = document.getElementById('viz-content');
-
-                container.classList.remove('hidden');
-                content.innerHTML = '<p>Lade Projekt-Struktur...</p>';
-
-                const response = await fetch('/api/visualize/structure');
-                const treeData = await response.json();
-
-                // D3.js Sunburst Visualization
-                content.innerHTML = '<div id="sunburst" style="width: 100%; height: 600px;"></div>';
-
-                const width = content.clientWidth;
-                const height = 600;
-                const radius = Math.min(width, height) / 2;
-
-                const partition = d3.partition()
-                    .size([2 * Math.PI, radius]);
-
-                const arc = d3.arc()
-                    .startAngle(d => d.x0)
-                    .endAngle(d => d.x1)
-                    .innerRadius(d => d.y0)
-                    .outerRadius(d => d.y1);
-
-                const svg = d3.select("#sunburst")
-                    .append("svg")
-                    .attr("width", width)
-                    .attr("height", height)
-                    .append("g")
-                    .attr("transform", `translate(${{width/2}},${{height/2}})`);
-
-                const root = d3.hierarchy(treeData)
-                    .sum(d => d.size || 1)
-                    .sort((a, b) => b.value - a.value);
-
-                partition(root);
-
-                const color = d3.scaleOrdinal()
-                    .domain(["python", "javascript", "folder"])
-                    .range(["#3776ab", "#f7df1e", "#666"]);
-
-                svg.selectAll("path")
-                    .data(root.descendants())
-                    .join("path")
-                    .attr("d", arc)
-                    .style("fill", d => color(d.data.language || "folder"))
-                    .style("stroke", "#fff")
-                    .append("title")
-                    .text(d => `${{d.data.name}}\n${{d.value}} lines`);
-            }}
-
-            // Enter-Taste für Chat
-            document.getElementById('chat-input').addEventListener('keypress', (e) => {{
-                if (e.key === 'Enter') sendMessage();
-            }});
-        </script>
-    </body>
-    </html>
+    <script>
+    function testSessionRecovery() {{
+        fetch('/api/session-recovery', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}}
+        }})
+        .then(response => response.json())
+        .then(data => {{
+            document.getElementById('test-result').innerHTML = 
+                '<h3>API Response:</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        }})
+        .catch(error => {{
+            document.getElementById('test-result').innerHTML = 
+                '<h3>Error:</h3><pre>' + error + '</pre>';
+        }});
+    }}
+    </script>
     """
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    bot.websocket_connections.append(websocket)
-
+# Session Management API Routes
+@app.route('/api/session-recovery', methods=['POST'])
+def api_session_recovery():
+    """Get session recovery data for user"""
     try:
-        while True:
-            data = await websocket.receive_text()
-            # WebSocket Handler hier
-    except:
-        bot.websocket_connections.remove(websocket)
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
+
+        if not session_manager:
+            return jsonify({'success': False, 'error': 'Session manager not available'})
+
+        user_id = session['user']['username']
+        recovery_data = session_manager.get_session_recovery_data(user_id)
+
+        return jsonify({
+            'success': True,
+            'recovery_data': recovery_data
+        })
+
+    except Exception as e:
+        logger.error(f"Session recovery API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
-@app.post("/api/chat")
-async def chat(message: ChatMessage):
-    response = bot.chat(message.message)
+@app.route('/api/resume-session', methods=['POST'])
+def api_resume_session():
+    """Resume a specific session"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
 
-    # Speichere Konversation
-    conversation = [
-        {"role": "user", "content": message.message},
-        {"role": "assistant", "content": response}
-    ]
-    bot.save_conversation(conversation)
+        if not session_manager:
+            return jsonify({'success': False, 'error': 'Session manager not available'})
 
-    return {"response": response}
+        data = request.get_json()
+        session_id = data.get('session_id')
 
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session ID required'})
 
-@app.post("/api/code")
-async def save_code(request: CodeSnippetRequest):
-    snippet_id = bot.save_code_snippet_with_embedding(
-        code=request.code,
-        language=request.language,
-        description=request.description,
-        tags=request.tags
-    )
+        session_data = session_manager.resume_session(session_id)
 
-    await bot.broadcast_update({
-        "type": "code_saved",
-        "snippet_id": snippet_id
-    })
+        if session_data['success']:
+            # Store current session in Flask session
+            session['current_session_id'] = session_id
 
-    return {"snippet_id": snippet_id}
+            return jsonify({
+                'success': True,
+                'message': 'Session erfolgreich wiederhergestellt!',
+                'session_data': session_data
+            })
+        else:
+            return jsonify(session_data)
 
-
-@app.post("/api/context")
-async def set_context(request: ProjectContextRequest):
-    bot.set_project_context(request.key, request.value)
-    return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Resume session API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
-@app.get("/api/search")
-async def search_code(query: str):
-    results = bot.semantic_search_code(query)
-    return {
-        "results": [
-            {
-                "id": s.id,
-                "description": s.description,
-                "language": s.language,
-                "tags": s.tags
-            } for s in results
-        ]
-    }
+@app.route('/api/create-session', methods=['POST'])
+def api_create_session():
+    """Create a new session"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
+
+        if not session_manager:
+            return jsonify({'success': False, 'error': 'Session manager not available'})
+
+        data = request.get_json()
+        project_name = data.get('project_name', '').strip()
+        project_type = data.get('project_type', 'general')
+
+        if not project_name:
+            return jsonify({'success': False, 'error': 'Project name required'})
+
+        user_id = session['user']['username']
+        session_id = session_manager.create_new_session(user_id, project_name, project_type)
+
+        # Store current session in Flask session
+        session['current_session_id'] = session_id
+
+        return jsonify({
+            'success': True,
+            'message': f'Neues Projekt "{project_name}" erstellt!',
+            'session_id': session_id
+        })
+
+    except Exception as e:
+        logger.error(f"Create session API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
-@app.post("/api/git/sync")
-async def sync_git():
-    bot.track_git_changes()
-    return {"status": "synced"}
+@app.route('/api/smart-suggestions', methods=['POST'])
+def api_smart_suggestions():
+    """Get smart suggestions for current session"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
+
+        if not session_manager:
+            return jsonify({'success': False, 'error': 'Session manager not available'})
+
+        current_session_id = session.get('current_session_id')
+        if not current_session_id:
+            return jsonify({'success': False, 'error': 'No active session'})
+
+        user_id = session['user']['username']
+        suggestions = session_manager.generate_smart_suggestions(current_session_id, user_id)
+
+        return jsonify({
+            'success': True,
+            'suggestions': suggestions
+        })
+
+    except Exception as e:
+        logger.error(f"Smart suggestions API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
-@app.get("/api/export")
-async def export_memory():
-    filepath = f"bot_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    bot.export_memory(filepath)
-    return {"filepath": filepath}
+# Basic API Routes
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    """Enhanced chat API with session tracking"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
+
+        data = request.get_json()
+        message = data.get('message', '').strip()
+        mode = data.get('mode', 'programming')
+
+        if not message:
+            return jsonify({'success': False, 'error': 'Empty message'})
+
+        # Prepare user context
+        user_context = {
+            'user_id': session['user']['username'],
+            'display_name': session['user']['display_name'],
+            'mode': mode,
+            'context': 'chat_only' if mode == 'chat_only' else 'programming'
+        }
+
+        # Get session context if available
+        current_session_id = session.get('current_session_id')
+        if session_manager and current_session_id:
+            try:
+                session_context = session_manager.get_session_context(current_session_id)
+                user_context.update(session_context)
+            except Exception as e:
+                logger.warning(f"Failed to get session context: {e}")
+
+        # Process message with bot engine
+        response = bot_engine.process_message(message, user_context)
+
+        # Save to session if session manager available
+        if session_manager and current_session_id:
+            try:
+                session_manager.save_chat_message(
+                    current_session_id,
+                    session['user']['username'],
+                    message,
+                    response,
+                    {'mode': mode, 'timestamp': datetime.now().isoformat()}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save chat to session: {e}")
+
+        return jsonify({
+            'success': True,
+            'response': response,
+            'timestamp': datetime.now().isoformat(),
+            'session_id': current_session_id
+        })
+
+    except Exception as e:
+        logger.error(f"Chat API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
-if __name__ == "__main__":
-    uvicorn.run(app, host=Config.HOST, port=Config.PORT)
+@app.route('/api/projects', methods=['GET'])
+def get_projects_api():
+    """Get all projects for current user"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+        user_id = session['user']['username']
+        logger.info(f"📋 API: Getting projects for user {user_id}")
+
+        # Get user's bot engine
+        user_bot_engine = get_user_bot_engine(user_id)
+
+        # Try to get projects from bot engine
+        if hasattr(user_bot_engine, 'get_user_projects'):
+            projects = user_bot_engine.get_user_projects(user_id)
+        else:
+            # Fallback to existing method
+            projects = user_bot_engine.get_projects(user_id) if hasattr(user_bot_engine, 'get_projects') else []
+
+        logger.info(f"📋 API: Found {len(projects)} projects")
+
+        return jsonify({
+            'success': True,
+            'projects': projects
+        })
+
+    except Exception as e:
+        logger.error(f"❌ API Error getting projects: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Fehler beim Laden der Projekte'
+        }), 500
+
+
+@app.route('/api/projects', methods=['POST'])
+def create_project_api():
+    """Create a new project"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        language = data.get('language', 'python').strip()
+
+        if not name:
+            return jsonify({'success': False, 'error': 'Projektname ist erforderlich'}), 400
+
+        user_id = session['user']['username']
+        logger.info(f"📝 API: Creating project '{name}' for user {user_id}")
+
+        # Get user's bot engine
+        user_bot_engine = get_user_bot_engine(user_id)
+
+        # Try to create project
+        if hasattr(user_bot_engine, 'create_project'):
+            if hasattr(user_bot_engine, 'get_user_projects'):
+                # New style method signature
+                result = user_bot_engine.create_project(user_id, name, description, language)
+            else:
+                # Old style method signature
+                project_id = user_bot_engine.create_project(name, description, language, user_id)
+                result = {
+                    'success': True,
+                    'project': {
+                        'id': project_id,
+                        'name': name,
+                        'description': description,
+                        'language': language,
+                        'status': 'active',
+                        'created_at': datetime.now().isoformat(),
+                        'updated_at': datetime.now().isoformat()
+                    }
+                }
+        else:
+            # Fallback
+            result = {
+                'success': True,
+                'project': {
+                    'id': f"fallback_{int(datetime.now().timestamp())}",
+                    'name': name,
+                    'description': description,
+                    'language': language,
+                    'status': 'active',
+                    'created_at': datetime.now().isoformat(),
+                    'updated_at': datetime.now().isoformat()
+                }
+            }
+
+        if result.get('success'):
+            logger.info(f"✅ API: Project created successfully")
+            return jsonify(result)
+        else:
+            logger.error(f"❌ API: Project creation failed: {result.get('error')}")
+            return jsonify(result), 400
+
+    except Exception as e:
+        logger.error(f"❌ API Error creating project: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': f'Fehler beim Erstellen des Projekts: {str(e)}'
+        }), 500
+
+
+@app.route('/api/projects/<int:project_id>', methods=['PUT'])
+def update_project(project_id):
+    """Update a project"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+        data = request.get_json()
+
+        logger.info(f"📝 API: Updating project {project_id} for user {user_id}")
+
+        # Get user's bot engine
+        bot_engine = get_user_bot_engine(user_id)
+        result = bot_engine.update_project(project_id, user_id, **data)
+
+        if result.get('success'):
+            logger.info(f"✅ API: Project updated successfully")
+            return jsonify(result)
+        else:
+            logger.error(f"❌ API: Project update failed: {result.get('error')}")
+            return jsonify(result), 400
+
+    except Exception as e:
+        logger.error(f"❌ API Error updating project: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Fehler beim Aktualisieren des Projekts'
+        }), 500
+
+
+@app.route('/api/projects/<int:project_id>', methods=['DELETE'])
+def delete_project(project_id):
+    """Delete a project"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+        logger.info(f"🗑️ API: Deleting project {project_id} for user {user_id}")
+
+        # Get user's bot engine
+        bot_engine = get_user_bot_engine(user_id)
+        result = bot_engine.delete_project(project_id, user_id)
+
+        if result.get('success'):
+            logger.info(f"✅ API: Project deleted successfully")
+            return jsonify(result)
+        else:
+            logger.error(f"❌ API: Project deletion failed: {result.get('error')}")
+            return jsonify(result), 400
+
+    except Exception as e:
+        logger.error(f"❌ API Error deleting project: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Fehler beim Löschen des Projekts'
+        }), 500
+
+
+@app.route('/api/code-review', methods=['POST'])
+def api_code_review():
+    """Enhanced code review API with session tracking"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
+
+        data = request.get_json()
+        code = data.get('code', '').strip()
+        language = data.get('language', 'python')
+
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'})
+
+        # Analyze code with bot engine
+        analysis = bot_engine.analyze_code(code, language)
+
+        # Save to session if session manager available
+        current_session_id = session.get('current_session_id')
+        if session_manager and current_session_id and analysis.get('success'):
+            try:
+                session_manager.save_code_review_result(
+                    current_session_id,
+                    session['user']['username'],
+                    code,
+                    language,
+                    analysis
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save code review to session: {e}")
+
+        return jsonify(analysis)
+
+    except Exception as e:
+        logger.error(f"Code review API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/metrics')
+def api_metrics():
+    """Metrics API"""
+    try:
+        if 'user' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'})
+
+        user_id = session['user']['username']
+        metrics = bot_engine.get_metrics(user_id)
+
+        return jsonify({
+            'success': True,
+            **metrics
+        })
+
+    except Exception as e:
+        logger.error(f"Metrics API error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/logout', methods=['POST'])
+def api_logout():
+    """API logout endpoint"""
+    session.clear()
+    return jsonify({'success': True, 'message': 'Logged out successfully'})
+
+
+def main():
+    """Main application entry point"""
+    try:
+        # Load all modules
+        load_modules()
+
+        # Validate configuration
+        if not config:
+            logger.error("Configuration could not be loaded")
+            sys.exit(1)
+
+        # Update app secret key
+        if hasattr(config, 'SECRET_KEY') and config.SECRET_KEY:
+            app.secret_key = config.SECRET_KEY
+
+        # Get server configuration
+        host = getattr(config, 'HOST', '0.0.0.0')
+        port = getattr(config, 'PORT', 8100)
+        debug = getattr(config, 'DEBUG', False)
+
+        logger.info("🚀 Programming Bot 2025 starting...")
+        logger.info(f"📍 Server: http://{host}:{port}")
+        logger.info(f"💻 Programming Interface: http://{host}:{port}/app")
+        logger.info(f"💬 Chat-Only Interface: http://{host}:{port}/chat")
+
+        # Start Flask app
+        app.run(
+            host=host,
+            port=port,
+            debug=debug,
+            threaded=True
+        )
+
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
