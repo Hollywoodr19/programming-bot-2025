@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  programming-bot:
+    build: .
+    container_name: programming-bot-2025
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL}
+      - PORT=8100
+      - DEBUG=False
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
