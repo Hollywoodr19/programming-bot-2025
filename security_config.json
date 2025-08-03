@@ -1,0 +1,82 @@
+{
+  "common_passwords": [
+    "password",
+    "123456789",
+    "qwertz123",
+    "admin123",
+    "passwort",
+    "admin",
+    "test123",
+    "welcome123",
+    "password123",
+    "123456",
+    "qwerty",
+    "abc123",
+    "letmein",
+    "monkey",
+    "1234567890",
+    "dragon",
+    "sunshine",
+    "iloveyou",
+    "princess",
+    "football",
+    "123123123",
+    "welcome",
+    "login",
+    "master",
+    "hello",
+    "charlie",
+    "superman",
+    "michael",
+    "computer",
+    "manager",
+    "user",
+    "administrator",
+    "root",
+    "tester",
+    "demo",
+    "guest"
+  ],
+  "default_admin": {
+    "username": "admin",
+    "password": "SecureAdmin2025!@#$%^&*",
+    "force_change": true,
+    "description": "Default admin account - change password on first login!"
+  },
+  "security_settings": {
+    "min_password_entropy": 50,
+    "lockout_duration_minutes": 15,
+    "session_cleanup_hours": 168,
+    "max_failed_attempts": 5,
+    "password_history_count": 5,
+    "enforce_2fa_for_admin": false,
+    "session_rotation_hours": 24,
+    "suspicious_activity_threshold": 3
+  },
+  "password_policy": {
+    "min_length": 12,
+    "require_uppercase": true,
+    "require_lowercase": true,
+    "require_numbers": true,
+    "require_special_chars": true,
+    "forbidden_patterns": [
+      "123",
+      "abc",
+      "qwe",
+      "asd",
+      "password",
+      "admin"
+    ],
+    "max_repeated_chars": 2
+  },
+  "monitoring": {
+    "log_successful_logins": true,
+    "log_failed_logins": true,
+    "log_session_events": true,
+    "log_password_changes": true,
+    "alert_on_multiple_failures": true,
+    "alert_threshold": 5
+  },
+  "version": "2.0",
+  "last_updated": "2025-01-03"
+}

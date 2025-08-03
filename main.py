@@ -1,1289 +1,795 @@
-#!/usr/bin/env python3
-"""
-Programming Bot 2025 - Multi-User AI Assistant
-Flask-Only Version ohne FastAPI Konflikte
-"""
+"""Programming Bot 2025 - Enhanced Template-based Flask Application"""
 
 import os
 import sys
-import json
 import logging
-from flask import Flask, request, render_template, jsonify, redirect, url_for, session, flash
-from datetime import datetime
+import secrets
+import json
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Any
+from functools import wraps
+import threading
+import time
 
+# Flask imports
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash, send_file
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_cors import CORS
+from werkzeug.exceptions import HTTPException, NotFound, InternalServerError, BadRequest
+from werkzeug.utils import secure_filename
 
-def get_user_bot_engine(user_id: str):
-    """Get or create bot engine for user - Fixed Version"""
-    global bot_engine
+# Import our enhanced modules
+from auth_system import auth_system
 
-    # For now, return the global bot_engine
-    # In the future, this could return user-specific engines
-    if bot_engine is None:
-        logger.error("❌ Bot engine not available")
-
-        # Return fallback engine
-        class FallbackEngine:
-            def get_user_projects(self, user_id):
-                return [{
-                    'id': 1,
-                    'name': 'Demo Project',
-                    'description': 'Fallback project',
-                    'language': 'python',
-                    'status': 'active',
-                    'created_at': '2025-01-01T00:00:00',
-                    'updated_at': '2025-01-01T00:00:00'
-                }]
-
-            def create_project(self, user_id, name, description="", language="python"):
-                return {
-                    'success': True,
-                    'project': {
-                        'id': 2,
-                        'name': name,
-                        'description': description,
-                        'language': language,
-                        'status': 'active',
-                        'created_at': '2025-01-01T00:00:00',
-                        'updated_at': '2025-01-01T00:00:00'
-                    }
-                }
-
-        return FallbackEngine()
-
-    return bot_engine
-
-
-# Configure logging with Windows compatibility
-if sys.platform == "win32":
-    import locale
-
-    try:
-        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
-    except:
+# .env File Loading (Manual Fallback)
+def load_env_file():
+    """Load .env file manually if python-dotenv is not available"""
+    env_path = '.env'
+    if os.path.exists(env_path):
         try:
-            locale.setlocale(locale.LC_ALL, '')
-        except:
-            pass
+            # Try with python-dotenv first
+            from dotenv import load_dotenv
+            load_dotenv(env_path)
+            print(f"✅ Loaded .env file using python-dotenv: {os.path.abspath(env_path)}")
+            return True
+        except ImportError:
+            # Manual parsing if python-dotenv is not available
+            print(f"⚠️  python-dotenv not available, loading .env manually...")
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip().strip('\'"')
+                        os.environ[key] = value
+            print(f"✅ Manually loaded .env file: {os.path.abspath(env_path)}")
+            return True
+    return False
 
 
-    # Windows-safe logging
-    class WindowsSafeFormatter(logging.Formatter):
-        def format(self, record):
-            message = super().format(record)
-            replacements = {
-                '✅': '[OK]', '❌': '[ERROR]', '⚠️': '[WARNING]', '🚀': '[START]',
-                '📍': '[SERVER]', '💻': '[PROG]', '💬': '[CHAT]', '🔧': '[DEBUG]',
-                '🤖': '[BOT]', '📊': '[DASH]', '📁': '[PROJ]', '🔍': '[REVIEW]'
+# Load environment
+load_env_file()
+
+
+# Enhanced Configuration Management
+class AppConfig:
+    """Comprehensive application configuration with validation and defaults"""
+
+    # Security Configuration - Fix SECRET_KEY issue
+    _secret_key = os.environ.get('SECRET_KEY', '')
+    if len(_secret_key) < 32:
+        print(f"⚠️  WARNING: SECRET_KEY too short ({len(_secret_key)} chars), generating secure one")
+        # Generate a proper 32+ character secret key
+        _secret_key = secrets.token_urlsafe(48)  # Generates ~64 characters
+        print(f"✅ Generated secure SECRET_KEY (length: {len(_secret_key)})")
+    SECRET_KEY = _secret_key
+
+    # API Configuration
+    CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY')
+    CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
+    CLAUDE_MAX_TOKENS = int(os.environ.get('CLAUDE_MAX_TOKENS', 4000))
+
+    # Server Configuration
+    HOST = os.environ.get('HOST', '127.0.0.1')
+    PORT = int(os.environ.get('PORT', 8100))
+    DEBUG = os.environ.get('DEBUG', 'False').lower() in ['true', '1', 'on', 'yes']
+    ENVIRONMENT = os.environ.get('FLASK_ENV', 'production')
+
+    # Session Configuration
+    SESSION_TIMEOUT_HOURS = int(os.environ.get('SESSION_TIMEOUT_HOURS', 24))
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() in ['true', '1', 'on', 'yes']
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+
+    # Rate Limiting
+    RATELIMIT_STORAGE_URL = os.environ.get('REDIS_URL', 'memory://')
+    RATELIMIT_ENABLED = os.environ.get('RATELIMIT_ENABLED', 'True').lower() in ['true', '1', 'on', 'yes']
+
+    # Features Configuration
+    ENABLE_REGISTRATION = os.environ.get('ENABLE_REGISTRATION', 'False').lower() in ['true', '1', 'on', 'yes']
+    ENABLE_CODE_REVIEW = os.environ.get('ENABLE_CODE_REVIEW', 'True').lower() in ['true', '1', 'on', 'yes']
+    ENABLE_PROJECT_MANAGEMENT = os.environ.get('ENABLE_PROJECT_MANAGEMENT', 'True').lower() in ['true', '1', 'on',
+                                                                                                'yes']
+    ENABLE_FILE_UPLOAD = os.environ.get('ENABLE_FILE_UPLOAD', 'True').lower() in ['true', '1', 'on', 'yes']
+
+    # CORS Configuration
+    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:8100,http://127.0.0.1:8100').split(',')
+
+    # Logging Configuration
+    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+    LOG_FILE = os.environ.get('LOG_FILE', 'programming_bot.log')
+    LOG_MAX_BYTES = int(os.environ.get('LOG_MAX_BYTES', 10 * 1024 * 1024))  # 10MB
+    LOG_BACKUP_COUNT = int(os.environ.get('LOG_BACKUP_COUNT', 5))
+
+    # Performance Configuration
+    THREADED = os.environ.get('THREADED', 'True').lower() in ['true', '1', 'on', 'yes']
+    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))  # 16MB
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
+
+    @classmethod
+    def get_runtime_info(cls) -> Dict[str, Any]:
+        """Get runtime configuration information"""
+        return {
+            'version': '2025.2.0',
+            'environment': cls.ENVIRONMENT,
+            'debug': cls.DEBUG,
+            'host': cls.HOST,
+            'port': cls.PORT,
+            'features': {
+                'registration': cls.ENABLE_REGISTRATION,
+                'code_review': cls.ENABLE_CODE_REVIEW,
+                'project_management': cls.ENABLE_PROJECT_MANAGEMENT,
+                'file_upload': cls.ENABLE_FILE_UPLOAD,
+                'rate_limiting': cls.RATELIMIT_ENABLED
+            },
+            'security': {
+                'session_timeout': f"{cls.SESSION_TIMEOUT_HOURS}h",
+                'secure_cookies': cls.SESSION_COOKIE_SECURE,
+                'cors_enabled': bool(cls.CORS_ORIGINS)
+            },
+            'api': {
+                'claude_model': cls.CLAUDE_MODEL,
+                'claude_configured': bool(cls.CLAUDE_API_KEY),
+                'max_tokens': cls.CLAUDE_MAX_TOKENS
             }
-            for emoji, text in replacements.items():
-                message = message.replace(emoji, text)
-            return message
+        }
 
 
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(WindowsSafeFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+# Enhanced Logging Setup
+def setup_logging():
+    """Setup comprehensive logging with rotation"""
+    from logging.handlers import RotatingFileHandler
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('programming_bot.log', encoding='utf-8'),
-            handler
-        ]
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
     )
-else:
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('programming_bot.log', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
+    simple_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s'
     )
 
-logger = logging.getLogger(__name__)
+    # Setup file handler with rotation and UTF-8 encoding
+    file_handler = RotatingFileHandler(
+        AppConfig.LOG_FILE,
+        maxBytes=AppConfig.LOG_MAX_BYTES,
+        backupCount=AppConfig.LOG_BACKUP_COUNT,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(detailed_formatter)
+    file_handler.setLevel(getattr(logging, AppConfig.LOG_LEVEL))
 
-# Initialize Flask app
-app = Flask(__name__, static_folder='web/static', static_url_path='/static')
-app.secret_key = 'programming-bot-2025-secret-key-change-in-production'
+    # Setup console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(simple_formatter)
+    console_handler.setLevel(logging.INFO if not AppConfig.DEBUG else logging.DEBUG)
 
-# Global variables for modules
-auth_system = None
-bot_engine = None
-config = None
-session_manager = None
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.handlers = []
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(getattr(logging, AppConfig.LOG_LEVEL))
 
-
-def load_session_manager():
-    """Load session manager if available"""
-    global session_manager
-    try:
-        from session_manager import get_session_manager
-        session_manager = get_session_manager()
-        logger.info("✅ Session Manager loaded successfully")
-        return True
-    except ImportError as e:
-        logger.warning(f"⚠️ Session Manager not found: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"❌ Session Manager failed to load: {e}")
-        return False
+    return root_logger
 
 
-def load_modules():
-    """Load all required modules with Smart Config System"""
-    global auth_system, bot_engine, config
+# Utility Functions
+def sanitize_input(text: str, max_length: int = 1000) -> str:
+    """Enhanced input sanitization"""
+    if not text:
+        return ""
 
-    # Load session manager
-    load_session_manager()
+    # Length check
+    if len(text) > max_length:
+        raise ValueError(f"Input too long (max {max_length} characters)")
 
-    # Load Smart Configuration System
-    try:
-        from config import get_config, get_current_claude_model, get_claude_config
-        config = get_config()
-        logger.info("✅ Smart Config System loaded successfully")
+    # Basic HTML escaping
+    from markupsafe import escape
+    sanitized = escape(text)
+    return str(sanitized)
 
-        # Print startup info with model status
-        if hasattr(config, 'print_startup_info'):
-            config.print_startup_info()
 
-        # Show current Claude model from centralized system
-        current_model = get_current_claude_model()
-        logger.info(f"🤖 Using Claude Model: {current_model}")
+def get_client_ip() -> str:
+    """Enhanced client IP detection"""
+    # Check for forwarded IPs (behind proxy/load balancer)
+    forwarded_ips = request.headers.get('X-Forwarded-For')
+    if forwarded_ips:
+        return forwarded_ips.split(',')[0].strip()
 
-    except ImportError as e:
-        logger.warning(f"❌ Smart Config not found: {e}")
+    # Check for real IP (some proxies)
+    real_ip = request.headers.get('X-Real-IP')
+    if real_ip:
+        return real_ip.strip()
 
-        # Create minimal config fallback
-        class Config:
-            DATABASE_PATH = "bot_data.db"
-            CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
-            CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-opus-4-20250514')
-            SECRET_KEY = 'fallback-secret-key'
-            HOST = '0.0.0.0'
-            PORT = 8100
-            DEBUG = False
+    # Check for Cloudflare
+    cf_ip = request.headers.get('CF-Connecting-IP')
+    if cf_ip:
+        return cf_ip.strip()
 
-            def get_claude_config(self):
-                return {
-                    'api_key': self.CLAUDE_API_KEY,
-                    'model': self.CLAUDE_MODEL,
-                    'max_tokens': 1000
-                }
+    # Fallback to remote address
+    return request.remote_addr or 'unknown'
 
-        config = Config()
 
-    # Load authentication system
-    try:
-        from auth_system import AuthenticationSystem
-        auth_system = AuthenticationSystem()
-        logger.info("✅ Auth system loaded successfully")
-    except ImportError as e:
-        logger.warning(f"❌ Auth system not found, using fallback: {e}")
-        from werkzeug.security import check_password_hash, generate_password_hash
+# Flask Application Factory
+def create_app():
+    """Enhanced Flask application factory"""
+    print("🏭 Creating Flask application...")
 
-        class SimpleAuthSystem:
-            def __init__(self):
-                self.users = {
-                    'admin': {
-                        'password_hash': generate_password_hash('admin123'),
-                        'display_name': 'Administrator',
-                        'role': 'admin'
-                    }
-                }
+    # Setup logging first
+    logger = setup_logging()
 
-            def authenticate_user(self, username, password):
-                user = self.users.get(username)
-                if user and check_password_hash(user['password_hash'], password):
-                    return {
-                        'username': username,
-                        'display_name': user['display_name'],
-                        'role': user['role']
-                    }
-                return None
+    # Create Flask app with correct template folder
+    app = Flask(__name__,
+                static_folder='web/static',
+                template_folder='templates',
+                instance_relative_config=True)
 
-            def register_user(self, username, password, email=None, display_name=None):
-                """Fallback register user method"""
-                if username in self.users:
-                    return {'success': False, 'error': 'Username bereits vergeben'}
+    # Configure Flask
+    app.config.update(
+        SECRET_KEY=AppConfig.SECRET_KEY,
+        SESSION_COOKIE_SECURE=AppConfig.SESSION_COOKIE_SECURE,
+        SESSION_COOKIE_HTTPONLY=AppConfig.SESSION_COOKIE_HTTPONLY,
+        SESSION_COOKIE_SAMESITE=AppConfig.SESSION_COOKIE_SAMESITE,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=AppConfig.SESSION_TIMEOUT_HOURS),
+        MAX_CONTENT_LENGTH=AppConfig.MAX_CONTENT_LENGTH,
+        UPLOAD_FOLDER=AppConfig.UPLOAD_FOLDER,
+        JSON_SORT_KEYS=False,
+        JSONIFY_PRETTYPRINT_REGULAR=AppConfig.DEBUG,
+        TEMPLATES_AUTO_RELOAD=AppConfig.DEBUG
+    )
 
-                self.users[username] = {
-                    'password_hash': generate_password_hash(password),
-                    'display_name': display_name or username,
-                    'role': 'user',
-                    'email': email
-                }
+    # Setup CORS
+    if AppConfig.CORS_ORIGINS:
+        CORS(app,
+             origins=AppConfig.CORS_ORIGINS,
+             supports_credentials=True,
+             allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
+             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+             expose_headers=['X-Total-Count', 'X-Rate-Limit-Remaining'])
 
-                return {
+    # Setup Rate Limiting
+    limiter = None
+    if AppConfig.RATELIMIT_ENABLED:
+        try:
+            limiter = Limiter(
+                key_func=get_remote_address,
+                storage_uri=AppConfig.RATELIMIT_STORAGE_URL,
+                default_limits=["200 per hour", "50 per minute"],
+                headers_enabled=True
+            )
+            limiter.init_app(app)
+            logger.info("Rate limiting enabled")
+        except Exception as e:
+            logger.warning(f"Rate limiting setup failed: {e}")
+
+    # Context processors for templates - FIX für Template Error
+    @app.context_processor
+    def inject_globals():
+        """Inject global variables into all templates - SAFE VERSION"""
+        try:
+            # Safe config object that is JSON serializable
+            safe_config = {
+                'DEBUG': AppConfig.DEBUG,
+                'ENABLE_REGISTRATION': AppConfig.ENABLE_REGISTRATION,
+                'ENABLE_CODE_REVIEW': AppConfig.ENABLE_CODE_REVIEW,
+                'ENABLE_PROJECT_MANAGEMENT': AppConfig.ENABLE_PROJECT_MANAGEMENT,
+                'PASSWORD_MIN_LENGTH': 12,
+                'SESSION_TIMEOUT_HOURS': AppConfig.SESSION_TIMEOUT_HOURS
+            }
+
+            return {
+                'current_year': datetime.now().year,
+                'app_name': 'Programming Bot 2025',
+                'app_version': '2025.2.0',
+                'environment': AppConfig.ENVIRONMENT,
+                'config': safe_config,  # Only JSON-serializable data
+                'user': session.get('user_info', {}),
+                'session': session
+            }
+        except Exception as e:
+            logger.error(f"Context processor error: {e}")
+            # Return minimal safe context
+            return {
+                'current_year': datetime.now().year,
+                'app_name': 'Programming Bot 2025',
+                'config': {'DEBUG': False}
+            }
+
+    # Template global functions - SAFE VERSION
+    @app.template_global()
+    def moment(timestamp=None):
+        """Safe moment function for templates"""
+        try:
+            if timestamp is None:
+                return datetime.now()
+            if isinstance(timestamp, (int, float)):
+                return datetime.fromtimestamp(timestamp)
+            elif isinstance(timestamp, str):
+                return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            return timestamp
+        except Exception:
+            return datetime.now()
+
+    # Authentication decorator
+    def login_required(f):
+        """Enhanced authentication decorator"""
+
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if 'user_id' not in session:
+                if request.path.startswith('/api/'):
+                    return jsonify({'error': 'Authentication required'}), 401
+                flash('Bitte melden Sie sich an, um fortzufahren.', 'warning')
+                return redirect(url_for('login'))
+
+            # Validate session
+            user_id = session['user_id']
+            session_token = session.get('session_token')
+
+            if not session_token:
+                session.clear()
+                if request.path.startswith('/api/'):
+                    return jsonify({'error': 'Session expired'}), 401
+                flash('Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.', 'warning')
+                return redirect(url_for('login'))
+
+            # Update user info in session
+            user_info = auth_system.get_user_info(user_id)
+            if user_info:
+                session['user_info'] = user_info
+
+            return f(*args, **kwargs)
+
+        return decorated_function
+
+    # Security headers
+    @app.after_request
+    def security_headers(response):
+        """Add comprehensive security headers"""
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['X-Permitted-Cross-Domain-Policies'] = 'none'
+
+        # Content Security Policy
+        csp_directives = [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+            "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+            "img-src 'self' data: https: blob:",
+            "connect-src 'self' https://api.anthropic.com",
+            "media-src 'self'",
+            "object-src 'none'",
+            "child-src 'none'",
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'"
+        ]
+        response.headers['Content-Security-Policy'] = "; ".join(csp_directives)
+
+        return response
+
+    # Routes
+    @app.route('/')
+    def index():
+        """Enhanced home page"""
+        if 'user_id' in session:
+            user_info = session.get('user_info', {})
+            if user_info.get('force_password_change', False):
+                return redirect(url_for('change_password'))
+            return redirect(url_for('programming'))
+        return redirect(url_for('login'))
+
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        """Enhanced login with template error fix and dual request support"""
+        if limiter:
+            limiter.limit("10 per minute")(lambda: None)()
+
+        if request.method == 'GET':
+            # If already logged in, redirect
+            if 'user_id' in session:
+                return redirect(url_for('programming'))
+
+            try:
+                # Try to render the original template
+                mode = request.args.get('mode', 'login')
+                return render_template('login.html', mode=mode)
+            except Exception as e:
+                logger.error(f"Template error in login: {e}")
+                # Return safe fallback HTML
+                return """
+                <!DOCTYPE html>
+                <html lang="de">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Programming Bot 2025 - Login</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+                        .container { max-width: 400px; margin: 50px auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+                        .form-group { margin-bottom: 20px; }
+                        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+                        input[type="text"], input[type="password"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; }
+                        button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }
+                        button:hover { background: #0056b3; }
+                        .alert { padding: 10px; margin: 10px 0; border-radius: 5px; display: none; }
+                        .alert.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+                        .alert.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+                        .fallback-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #ffeaa7; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="fallback-notice">
+                            <strong>⚠️ Fallback-Modus:</strong> Das originale Login-Template konnte nicht geladen werden. Diese vereinfachte Version funktioniert trotzdem!
+                        </div>
+                        <h1>🤖 Programming Bot 2025</h1>
+                        <div id="alert" class="alert"></div>
+                        <form id="loginForm">
+                            <div class="form-group">
+                                <label for="username">Benutzername:</label>
+                                <input type="text" id="username" name="username" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="password">Passwort:</label>
+                                <input type="password" id="password" name="password" required>
+                            </div>
+                            <button type="submit" id="loginBtn">Anmelden</button>
+                        </form>
+                        <script>
+                            function showAlert(message, type) {
+                                const alert = document.getElementById('alert');
+                                alert.textContent = message;
+                                alert.className = 'alert ' + type;
+                                alert.style.display = 'block';
+                            }
+
+                            document.getElementById('loginForm').addEventListener('submit', async function(e) {
+                                e.preventDefault();
+                                const btn = document.getElementById('loginBtn');
+                                const username = document.getElementById('username').value;
+                                const password = document.getElementById('password').value;
+
+                                btn.disabled = true;
+                                btn.textContent = 'Anmelden...';
+
+                                try {
+                                    const response = await fetch('/login', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                        body: 'username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password)
+                                    });
+
+                                    const data = await response.json();
+
+                                    if (data.success) {
+                                        showAlert('Erfolgreich angemeldet! Weiterleitung...', 'success');
+                                        setTimeout(() => window.location.href = data.redirect || '/programming', 1000);
+                                    } else {
+                                        showAlert(data.message || 'Anmeldung fehlgeschlagen', 'error');
+                                    }
+                                } catch (error) {
+                                    showAlert('Verbindungsfehler: ' + error.message, 'error');
+                                }
+
+                                btn.disabled = false;
+                                btn.textContent = 'Anmelden';
+                            });
+                        </script>
+                    </div>
+                </body>
+                </html>
+                """, 200
+
+        # Handle POST requests - SUPPORT BOTH JSON AND FORM DATA
+        try:
+            # Check Content-Type and handle accordingly
+            if request.content_type and 'application/json' in request.content_type:
+                # JSON request (from original template)
+                data = request.get_json()
+                if not data:
+                    return jsonify({'success': False, 'message': 'Invalid JSON data'}), 400
+                username = data.get('username', '')
+                password = data.get('password', '')
+            else:
+                # Form data request (from fallback template)
+                username = request.form.get('username', '')
+                password = request.form.get('password', '')
+
+            # Input validation
+            if not username or not password:
+                return jsonify({
+                    'success': False,
+                    'message': 'Benutzername und Passwort sind erforderlich'
+                }), 400
+
+            username = sanitize_input(username, 50)
+            client_ip = get_client_ip()
+
+            # Log login attempt
+            logger.info(f"Login attempt: {username} from {client_ip[:10]}...")
+
+            # Authenticate user
+            success, message = auth_system.authenticate_user(username, password, client_ip)
+
+            if success:
+                # Create session
+                session_token = secrets.token_urlsafe(32)
+
+                # Get user info
+                user_info = auth_system.get_user_info(username)
+
+                # Set session data
+                session['user_id'] = username
+                session['session_token'] = session_token
+                session['user_info'] = user_info or {}
+                session['login_time'] = datetime.now().isoformat()
+                session['client_ip'] = client_ip
+                session.permanent = request.form.get('remember_me') == 'on' or request.json.get('remember_me', False)
+
+                # Determine redirect URL
+                redirect_url = '/programming'
+                if user_info and user_info.get('force_password_change', False):
+                    redirect_url = '/change-password'
+
+                logger.info(f"Login successful: {username}")
+
+                return jsonify({
                     'success': True,
+                    'message': 'Erfolgreich angemeldet!',
+                    'redirect': redirect_url,
                     'user': {
                         'username': username,
-                        'display_name': display_name or username,
-                        'role': 'user'
+                        'is_admin': user_info.get('is_admin', False) if user_info else False
                     }
-                }
-
-            def check_username_available(self, username):
-                return username not in self.users
-
-        auth_system = SimpleAuthSystem()
-
-    # Load bot engine with Smart Config
-    try:
-        from core.bot_engine import ClaudeAPIEngine
-        # Get Claude config from Smart Config System
-        claude_config = config.get_claude_config() if hasattr(config, 'get_claude_config') else {
-            'api_key': getattr(config, 'CLAUDE_API_KEY', None),
-            'model': getattr(config, 'CLAUDE_MODEL', 'claude-opus-4-20250514'),
-            'max_tokens': 1000
-        }
-
-        bot_engine = ClaudeAPIEngine(
-            api_key=claude_config['api_key'],
-            model=claude_config.get('model'),
-            max_tokens=claude_config.get('max_tokens', 1000)
-        )
-        logger.info("✅ Claude API Bot Engine loaded with Smart Config")
-
-    except ImportError as e:
-        logger.warning(f"❌ Bot engine not found, using enhanced fallback: {e}")
-
-        # Enhanced fallback bot engine
-        class EnhancedFallbackEngine:
-            def __init__(self):
-                self.message_count = 0
-                self.user_context = {}
-                self.projects = {}
-                self.chat_history = {}
-
-            def process_message(self, message, user_context=None):
-                self.message_count += 1
-                context = user_context or self.user_context
-                user_id = context.get('user_id', 'anonymous')
-                mode = context.get('mode', 'programming')
-                display_name = context.get('display_name', 'Freund')
-
-                # Save message to history
-                if user_id not in self.chat_history:
-                    self.chat_history[user_id] = []
-
-                message_lower = message.lower()
-
-                # Enhanced responses based on mode
-                if mode == 'casual' or mode == 'chat_only':
-                    if any(word in message_lower for word in ["hallo", "hi", "hey"]):
-                        response = f"Hallo {display_name}! Schön dich zu sehen! Wie geht es dir denn heute?"
-                    elif any(word in message_lower for word in ["wie geht", "geht es"]):
-                        response = "Mir geht es super, danke der Nachfrage! Wie geht es dir denn?"
-                    elif "witz" in message_lower:
-                        jokes = [
-                            "Warum nehmen Geister keine Drogen? Weil sie schon high-spirited sind!",
-                            "Was ist grün und klopft an der Tür? Ein Klopfsalat!",
-                            "Warum können Geister so schlecht lügen? Weil man durch sie hindurchsehen kann!"
-                        ]
-                        import random
-                        response = random.choice(jokes)
-                    elif "claude" in message_lower and "verbunden" in message_lower:
-                        current_model = getattr(config, 'CLAUDE_MODEL', 'Fallback Mode')
-                        response = f"Ich verwende das Model: {current_model}. Leider läuft gerade der Fallback-Modus, da die Claude API nicht verfügbar ist."
-                    else:
-                        response = f"Das ist interessant, {display_name}! Erzähl mir mehr davon!"
-
-                elif mode == 'help':
-                    response = f"Gerne helfe ich dir dabei, {display_name}! Zu deiner Frage '{message}': Lass mich das für dich klären..."
-
-                elif mode == 'learn':
-                    response = f"Sehr gerne erkläre ich dir das, {display_name}! Das Thema '{message}' ist wirklich faszinierend. Lass uns das zusammen entdecken!"
-
-                else:  # programming mode
-                    if any(word in message_lower for word in ["def ", "function", "class ", "import"]):
-                        response = "Das sieht nach Code aus! Gerne schaue ich mir das für dich an. Soll ich es analysieren?"
-                    elif "projekt" in message_lower:
-                        response = "Großartig! Lass uns ein neues Projekt starten. Was für eine Anwendung möchtest du erstellen?"
-                    elif any(word in message_lower for word in ["hallo", "hi", "hey"]):
-                        response = f"Hallo {display_name}! Wie kann ich dir beim Programmieren helfen?"
-                    elif "claude" in message_lower and ("modell" in message_lower or "model" in message_lower):
-                        current_model = getattr(config, 'CLAUDE_MODEL', 'Unbekannt')
-                        response = f"Ich bin konfiguriert für das Claude Model: {current_model}. Derzeit läuft der Fallback-Modus."
-                    else:
-                        response = f"Interessant! Ich verstehe: '{message}'. Wie kann ich dir dabei helfen?"
-
-                # Save to history
-                self.chat_history[user_id].append({
-                    'message': message,
-                    'response': response,
-                    'timestamp': datetime.now().isoformat(),
-                    'mode': mode
                 })
-
-                return response
-
-            def create_project(self, name, description, language, user_id):
-                project_id = f"project_{hash(f'{user_id}_{name}')}"
-
-                if user_id not in self.projects:
-                    self.projects[user_id] = []
-
-                project = {
-                    'id': project_id,
-                    'name': name,
-                    'description': description,
-                    'language': language,
-                    'user_id': user_id,
-                    'created_at': datetime.now().isoformat()
-                }
-
-                self.projects[user_id].append(project)
-                return project_id
-
-            def get_user_projects(self, user_id):
-                return self.projects.get(user_id, [])
-
-            def analyze_code(self, code, language="python"):
-                lines = code.split('\n')
-                return {
-                    'success': True,
-                    'analysis': f"Code-Analyse: {len(lines)} Zeilen {language} Code. Struktur sieht gut aus! (Fallback-Analyse)",
-                    'quality_score': 75,
-                    'suggestions': [
-                        'Füge mehr Kommentare für bessere Dokumentation hinzu',
-                        'Erwäge Error-Handling zu implementieren',
-                        'Überprüfe Variablen-Namenskonventionen'
-                    ]
-                }
-
-            def get_chat_history(self, user_id, limit=50):
-                return self.chat_history.get(user_id, [])[-limit:]
-
-            def get_metrics(self, user_id=None):
-                if user_id:
-                    history = self.chat_history.get(user_id, [])
-                    projects = self.projects.get(user_id, [])
-                    current_model = getattr(config, 'CLAUDE_MODEL', 'Fallback Mode')
-                    return {
-                        'user_messages': len(history),
-                        'user_projects': len(projects),
-                        'api_status': f'Fallback Mode (Configured: {current_model})'
-                    }
-                else:
-                    total_messages = sum(len(h) for h in self.chat_history.values())
-                    total_projects = sum(len(p) for p in self.projects.values())
-                    return {
-                        'total_messages': total_messages,
-                        'total_projects': total_projects,
-                        'active_users': len(self.chat_history),
-                        'api_status': 'Fallback Mode',
-                        'uptime': 'Running'
-                    }
-
-        bot_engine = EnhancedFallbackEngine()
-
-
-# Create directories
-os.makedirs('templates', exist_ok=True)
-os.makedirs('web/static/js', exist_ok=True)
-os.makedirs('web/static/css', exist_ok=True)
-os.makedirs('data', exist_ok=True)
-
-
-# Routes
-@app.route('/')
-def index():
-    """Main landing page - login"""
-    try:
-        return render_template('login.html')
-    except Exception as e:
-        logger.error(f"Template error: {e}")
-        return """
-        <!DOCTYPE html>
-        <html><head><title>Programming Bot 2025 - Login</title>
-        <style>
-        body { font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        .login-form { max-width: 300px; margin: 30px auto; }
-        input { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; }
-        button { width: 100%; padding: 15px; background: #00d4aa; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        </style></head>
-        <body>
-        <h1>🤖 Programming Bot 2025</h1>
-        <p>Template not found. Using fallback login.</p>
-        <form method="POST" action="/login" class="login-form">
-            <input type="text" name="username" placeholder="Username: admin" required>
-            <input type="password" name="password" placeholder="Password: admin123" required>
-            <button type="submit">🚀 Login</button>
-        </form>
-        </body></html>
-        """
-
-
-# Replace the login route in your main.py with this version:
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """Enhanced login route with universal session recovery"""
-    if request.method == 'GET':
-        return redirect(url_for('index'))
-
-    try:
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-
-        if not username or not password:
-            return redirect(url_for('index'))
-
-        user = auth_system.authenticate_user(username, password)
-
-        if user:
-            session['user'] = user
-            session['logged_in'] = True
-            logger.info(f"User {username} logged in successfully")
-
-            # UNIVERSAL SESSION RECOVERY CHECK - For ALL users
-            recovery_data = None
-            show_session_recovery = False
-
-            if session_manager:
-                try:
-                    logger.info(f"🔍 Checking session recovery for user: {username}")
-
-                    # Get recent sessions with meaningful activity
-                    recovery_data = session_manager.get_session_recovery_data(username)
-
-                    if recovery_data:
-                        logger.info(f"📊 Recovery data found: {recovery_data}")
-
-                        # Check if there are meaningful sessions to recover
-                        if recovery_data.get('has_sessions', False):
-                            sessions = recovery_data.get('sessions', [])
-
-                            # Filter for sessions with actual work
-                            meaningful_sessions = []
-                            for sess in sessions:
-                                # Check if session has meaningful content
-                                if (sess.get('messages_count', 0) > 1 or
-                                        sess.get('project_id') or
-                                        sess.get('code_reviews_count', 0) > 0 or
-                                        sess.get('last_active')):
-                                    meaningful_sessions.append(sess)
-
-                            if meaningful_sessions:
-                                show_session_recovery = True
-                                recovery_data['meaningful_sessions'] = meaningful_sessions
-                                recovery_data['session_count'] = len(meaningful_sessions)
-                                logger.info(f"✅ Found {len(meaningful_sessions)} recoverable sessions")
-                            else:
-                                logger.info("ℹ️ No meaningful sessions found for recovery")
-                        else:
-                            logger.info("ℹ️ No sessions available for recovery")
-                    else:
-                        logger.info("ℹ️ No recovery data available")
-
-                except Exception as e:
-                    logger.error(f"❌ Session recovery check failed: {e}")
-
-            # UNIVERSAL SESSION RECOVERY - Show for ALL users
-            if not show_session_recovery:
-                logger.info(f"🎭 Activating universal session recovery for user: {username}")
-
-                # Create a session entry for this login if session manager available
-                if session_manager:
-                    try:
-                        # Create a new session for this login
-                        demo_session_id = session_manager.create_new_session(
-                            username,
-                            f"Session {datetime.now().strftime('%d.%m %H:%M')}",
-                            "general"
-                        )
-
-                        # Add a welcome message to make it meaningful
-                        session_manager.save_chat_message(
-                            demo_session_id,
-                            username,
-                            "Hallo! Wie kann ich dir beim Programmieren helfen?",
-                            f"Willkommen {user.get('display_name', username)}! Ich bin dein KI-Programmierassistent. Möchtest du ein neues Projekt starten oder hast du Fragen zum Programmieren?",
-                            {'mode': 'welcome', 'timestamp': datetime.now().isoformat()}
-                        )
-
-                        logger.info(f"✅ Created welcome session: {demo_session_id}")
-
-                    except Exception as e:
-                        logger.error(f"❌ Failed to create welcome session: {e}")
-
-                # ALWAYS show session recovery modal for better UX
-                recovery_data = {
-                    'has_sessions': False,  # No previous sessions
-                    'show_welcome': True,  # Show welcome modal instead
-                    'user_name': user.get('display_name', username),
-                    'options': [
-                        {
-                            'type': 'new_project',
-                            'title': 'Neues Projekt starten',
-                            'description': 'Erstelle ein neues Programmierprojekt',
-                            'icon': '✨',
-                            'action': 'create_project'
-                        },
-                        {
-                            'type': 'explore_projects',
-                            'title': 'Projekte erkunden',
-                            'description': 'Schaue dir deine bestehenden Projekte an',
-                            'icon': '📁',
-                            'action': 'show_projects'
-                        },
-                        {
-                            'type': 'free_chat',
-                            'title': 'Freier Chat',
-                            'description': 'Stelle Fragen zum Programmieren',
-                            'icon': '💬',
-                            'action': 'start_chat'
-                        }
-                    ],
-                    'welcome_message': f"Willkommen zurück, {user.get('display_name', username)}! Wie möchtest du heute starten?"
-                }
-                show_session_recovery = True
-                logger.info("✅ Universal session recovery modal activated")
-
-            # Store recovery data in session for app interface
-            if show_session_recovery and recovery_data:
-                session['show_session_recovery'] = True
-                session['recovery_data'] = recovery_data
-                logger.info("🔄 Session recovery will be shown")
-                if recovery_data:
-                    if recovery_data.get('has_sessions'):
-                        logger.info(
-                            f"📊 Recovery type: Previous sessions ({recovery_data.get('session_count', 0)} sessions)")
-                    else:
-                        logger.info(f"📊 Recovery type: Welcome modal")
             else:
-                session['show_session_recovery'] = False
-                session['recovery_data'] = None
-                logger.info("➡️ No session recovery needed")
-
-            redirect_to = request.args.get('redirect', '/app')
-            return redirect(redirect_to)
-        else:
-            logger.warning(f"Failed login attempt for user: {username}")
-            return redirect(url_for('index'))
-
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        return redirect(url_for('index'))
-
-
-@app.route('/app')
-def app_interface():
-    """Enhanced app interface with session recovery"""
-    if 'user' not in session:
-        return redirect(url_for('login', redirect='/app'))
-
-    try:
-        user = session['user']
-
-        # Get recovery data from session (set during login)
-        show_session_recovery = session.pop('show_session_recovery', False)
-        recovery_data = session.pop('recovery_data', None)
-
-        logger.info(f"🎨 Rendering app for {user['username']}")
-        logger.info(f"🔄 Show recovery: {show_session_recovery}")
-        logger.info(f"📊 Recovery data: {recovery_data is not None}")
-
-        if recovery_data:
-            logger.info(f"📊 Recovery sessions count: {recovery_data.get('session_count', 0)}")
-
-        return render_template('app.html',
-                               user=user,
-                               mode='programming',
-                               show_session_recovery=show_session_recovery,
-                               recovery_data=recovery_data)
-    except Exception as e:
-        logger.error(f"App template error: {e}")
-        return f"""
-        <html><body style="font-family: Arial; padding: 20px;">
-        <h1>Programming Bot - {session['user']['display_name']}</h1>
-        <p>Template not found. Please create templates/app.html</p>
-        <p>Error: {e}</p>
-        <p>Show recovery: {session.get('show_session_recovery', False)}</p>
-        <a href="/logout">Logout</a>
-        </body></html>
-        """
-
-
-@app.route('/chat')
-def chat_interface():
-    """Chat-Only interface"""
-    if 'user' not in session:
-        return redirect(url_for('login', redirect='/chat'))
-
-    try:
-        user = type('User', (), session['user'])()
-        return render_template('app.html', user=user, mode='chat_only')
-    except Exception as e:
-        logger.error(f"Template error: {e}")
-        return f"""
-        <html><body style="font-family: Arial; padding: 20px;">
-        <h1>Chat-Only Bot - {session['user']['display_name']}</h1>
-        <p>Template not found. Please create templates/app.html</p>
-        <p>Error: {e}</p>
-        <a href="/logout">Logout</a>
-        </body></html>
-        """
-
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    """Handle user registration"""
-    if request.method == 'POST':
-        try:
-            username = request.form.get('username', '').strip()
-            password = request.form.get('password', '')
-            confirm_password = request.form.get('confirm_password', '')
-            email = request.form.get('email', '').strip()
-            display_name = request.form.get('display_name', '').strip()
-
-            # Basic validation
-            error = None
-
-            # Username validation
-            if not username or len(username) < 3:
-                error = "Benutzername muss mindestens 3 Zeichen haben"
-            elif len(username) > 50:
-                error = "Benutzername darf maximal 50 Zeichen haben"
-
-            # Password validation
-            elif not password or len(password) < 6:
-                error = "Passwort muss mindestens 6 Zeichen haben"
-
-            # Password confirmation
-            elif password != confirm_password:
-                error = "Passwörter stimmen nicht überein"
-
-            # E-Mail validation (only if provided)
-            elif email:
-                import re
-                email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-                if not re.match(email_pattern, email):
-                    error = "Bitte geben Sie eine gültige E-Mail-Adresse ein"
-
-            if not error:
-                # Attempt registration
-                result = auth_system.register_user(username, email, password, display_name)
-
-                if result.get('success'):
-                    logger.info(f"✅ New user registered: {username}")
-
-                    # Auto-login after successful registration
-                    # Use authenticate_user to get proper user dict
-                    user_dict = auth_system.authenticate_user(username, password)
-
-                    if user_dict:
-                        session['user'] = user_dict
-                        session['logged_in'] = True
-                        logger.info(f"✅ Auto-login successful for: {username}")
-                        return redirect(url_for('app_interface'))
-                    else:
-                        # Registration succeeded but auto-login failed
-                        logger.warning(f"⚠️ Registration OK but auto-login failed for: {username}")
-                        return redirect(url_for('index'))  # Go to login page
-                else:
-                    error = result.get('error', 'Registrierung fehlgeschlagen')
-
-            # Return registration page with error
-            try:
-                return render_template('register.html', error=error,
-                                     username=username, email=email, display_name=display_name)
-            except:
-                return f"""
-                <!DOCTYPE html>
-                <html><head><title>Registration Error</title>
-                <style>
-                body {{ font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
-                .register-form {{ max-width: 400px; margin: 30px auto; }}
-                input {{ width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; }}
-                button {{ width: 100%; padding: 15px; background: #6c5ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }}
-                .error {{ color: #ff6b6b; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 5px; margin: 10px 0; }}
-                </style></head>
-                <body>
-                <h1>🤖 Programming Bot - Registrierung</h1>
-                <div class="error">{error}</div>
-                <form method="POST" class="register-form">
-                    <input type="text" name="username" placeholder="Benutzername (min. 3 Zeichen)" required minlength="3" value="{username}">
-                    <input type="email" name="email" placeholder="E-Mail (optional)" value="{email}">
-                    <input type="text" name="display_name" placeholder="Anzeigename (optional)" value="{display_name}">
-                    <input type="password" name="password" placeholder="Passwort (min. 6 Zeichen)" required minlength="6">
-                    <input type="password" name="confirm_password" placeholder="Passwort bestätigen" required minlength="6">
-                    <button type="submit">✨ Registrieren</button>
-                </form>
-                <p><a href="/" style="color: #00d4aa;">Bereits ein Konto? Anmelden</a></p>
-                </body></html>
-                """
+                logger.warning(f"Login failed: {username} - {message}")
+                return jsonify({'success': False, 'message': message}), 401
 
         except Exception as e:
-            logger.error(f"❌ Registration error: {e}")
-            error = "Ein unerwarteter Fehler ist aufgetreten"
-            try:
-                return render_template('register.html', error=error)
-            except:
-                return redirect(url_for('index'))
+            logger.error(f"Login error: {e}")
+            return jsonify({
+                'success': False,
+                'message': 'Ein unerwarteter Fehler ist aufgetreten'
+            }), 500
 
-    # GET request - show registration form
-    try:
-        return render_template('register.html')
-    except:
-        return """
-        <!DOCTYPE html>
-        <html><head><title>Programming Bot - Registrierung</title>
-        <style>
-        body { font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        .register-form { max-width: 400px; margin: 30px auto; }
-        input { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; }
-        button { width: 100%; padding: 15px; background: #6c5ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        </style></head>
-        <body>
-        <h1>🤖 Programming Bot - Registrierung</h1>
-        <p>Erstelle einen neuen Account</p>
-        <form method="POST" class="register-form">
-            <input type="text" name="username" placeholder="Benutzername (min. 3 Zeichen)" required minlength="3">
-            <input type="email" name="email" placeholder="E-Mail (optional)">
-            <input type="text" name="display_name" placeholder="Anzeigename (optional)">
-            <input type="password" name="password" placeholder="Passwort (min. 6 Zeichen)" required minlength="6">
-            <input type="password" name="confirm_password" placeholder="Passwort bestätigen" required minlength="6">
-            <button type="submit">✨ Registrieren</button>
-        </form>
-        <p><a href="/" style="color: #00d4aa;">Bereits ein Konto? Anmelden</a></p>
-        </body></html>
-        """
+    @app.route('/register', methods=['POST'])
+    def register():
+        """User registration endpoint - auch wenn Registration deaktiviert ist"""
+        if not AppConfig.ENABLE_REGISTRATION:
+            return jsonify({'success': False, 'message': 'Registrierung ist deaktiviert'}), 403
 
+        # Hier würde die eigentliche Registrierungslogik stehen
+        return jsonify({'success': False, 'message': 'Registrierung noch nicht implementiert'}), 501
 
-@app.route('/api/check-username', methods=['POST'])
-def check_username():
-    """API endpoint to check username availability"""
-    try:
-        data = request.get_json()
-        username = data.get('username', '').strip()
+    def logout():
+        """Enhanced user logout"""
+        user_id = session.get('user_id', 'unknown')
+        client_ip = get_client_ip()
 
-        if len(username) < 3:
-            return jsonify({'available': False, 'message': 'Username zu kurz'})
+        logger.info(f"Logout: {user_id} from {client_ip[:10]}...")
 
-        available = auth_system.check_username_available(username)
-        return jsonify({
-            'available': available,
-            'message': 'Username verfügbar' if available else 'Username bereits vergeben'
-        })
+        session.clear()
 
-    except Exception as e:
-        logger.error(f"❌ Username check error: {e}")
-        return jsonify({'available': False, 'message': 'Fehler bei der Prüfung'})
-
-
-@app.route('/logout')
-def logout():
-    """Handle user logout"""
-    username = session.get('user', {}).get('username', 'Unknown')
-    session.clear()
-    logger.info(f"User {username} logged out")
-    return redirect(url_for('index'))
-
-
-# Debug Routes
-@app.route('/debug/session-recovery')
-def debug_session_recovery():
-    """Debug Session Recovery System"""
-    if 'user' not in session:
-        return "Not logged in"
-
-    user_id = session['user']['username']
-
-    debug_info = {
-        'user_id': user_id,
-        'session_manager_available': session_manager is not None,
-        'session_manager_type': type(session_manager).__name__ if session_manager else None
-    }
-
-    if session_manager:
-        try:
-            recovery_data = session_manager.get_session_recovery_data(user_id)
-            debug_info['recovery_data'] = recovery_data
-            debug_info['recovery_data_type'] = type(recovery_data).__name__
-            debug_info['has_sessions'] = recovery_data.get('has_sessions', False) if recovery_data else False
-        except Exception as e:
-            debug_info['session_manager_error'] = str(e)
-
-    return f"""
-    <h1>🔍 Session Recovery Debug</h1>
-    <pre>{json.dumps(debug_info, indent=2, default=str)}</pre>
-
-    <h2>Test Session Recovery</h2>
-    <button onclick="testSessionRecovery()">Test Recovery Check</button>
-
-    <div id="test-result"></div>
-
-    <script>
-    function testSessionRecovery() {{
-        fetch('/api/session-recovery', {{
-            method: 'POST',
-            headers: {{'Content-Type': 'application/json'}}
-        }})
-        .then(response => response.json())
-        .then(data => {{
-            document.getElementById('test-result').innerHTML = 
-                '<h3>API Response:</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
-        }})
-        .catch(error => {{
-            document.getElementById('test-result').innerHTML = 
-                '<h3>Error:</h3><pre>' + error + '</pre>';
-        }});
-    }}
-    </script>
-    """
-
-
-# Session Management API Routes
-@app.route('/api/session-recovery', methods=['POST'])
-def api_session_recovery():
-    """Get session recovery data for user"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
-
-        if not session_manager:
-            return jsonify({'success': False, 'error': 'Session manager not available'})
-
-        user_id = session['user']['username']
-        recovery_data = session_manager.get_session_recovery_data(user_id)
-
-        return jsonify({
-            'success': True,
-            'recovery_data': recovery_data
-        })
-
-    except Exception as e:
-        logger.error(f"Session recovery API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/resume-session', methods=['POST'])
-def api_resume_session():
-    """Resume a specific session"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
-
-        if not session_manager:
-            return jsonify({'success': False, 'error': 'Session manager not available'})
-
-        data = request.get_json()
-        session_id = data.get('session_id')
-
-        if not session_id:
-            return jsonify({'success': False, 'error': 'Session ID required'})
-
-        session_data = session_manager.resume_session(session_id)
-
-        if session_data['success']:
-            # Store current session in Flask session
-            session['current_session_id'] = session_id
-
+        if request.method == 'POST' or request.path.startswith('/api/'):
             return jsonify({
                 'success': True,
-                'message': 'Session erfolgreich wiederhergestellt!',
-                'session_data': session_data
+                'message': 'Erfolgreich abgemeldet',
+                'redirect': '/'
             })
         else:
-            return jsonify(session_data)
+            flash('Sie wurden erfolgreich abgemeldet.', 'success')
+            return redirect(url_for('login'))
 
-    except Exception as e:
-        logger.error(f"Resume session API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/create-session', methods=['POST'])
-def api_create_session():
-    """Create a new session"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
-
-        if not session_manager:
-            return jsonify({'success': False, 'error': 'Session manager not available'})
-
-        data = request.get_json()
-        project_name = data.get('project_name', '').strip()
-        project_type = data.get('project_type', 'general')
-
-        if not project_name:
-            return jsonify({'success': False, 'error': 'Project name required'})
-
-        user_id = session['user']['username']
-        session_id = session_manager.create_new_session(user_id, project_name, project_type)
-
-        # Store current session in Flask session
-        session['current_session_id'] = session_id
-
-        return jsonify({
-            'success': True,
-            'message': f'Neues Projekt "{project_name}" erstellt!',
-            'session_id': session_id
-        })
-
-    except Exception as e:
-        logger.error(f"Create session API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/smart-suggestions', methods=['POST'])
-def api_smart_suggestions():
-    """Get smart suggestions for current session"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
-
-        if not session_manager:
-            return jsonify({'success': False, 'error': 'Session manager not available'})
-
-        current_session_id = session.get('current_session_id')
-        if not current_session_id:
-            return jsonify({'success': False, 'error': 'No active session'})
-
-        user_id = session['user']['username']
-        suggestions = session_manager.generate_smart_suggestions(current_session_id, user_id)
-
-        return jsonify({
-            'success': True,
-            'suggestions': suggestions
-        })
-
-    except Exception as e:
-        logger.error(f"Smart suggestions API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-# Basic API Routes
-@app.route('/api/chat', methods=['POST'])
-def api_chat():
-    """Enhanced chat API with session tracking"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
-
-        data = request.get_json()
-        message = data.get('message', '').strip()
-        mode = data.get('mode', 'programming')
-
-        if not message:
-            return jsonify({'success': False, 'error': 'Empty message'})
-
-        # Prepare user context
-        user_context = {
-            'user_id': session['user']['username'],
-            'display_name': session['user']['display_name'],
-            'mode': mode,
-            'context': 'chat_only' if mode == 'chat_only' else 'programming'
-        }
-
-        # Get session context if available
-        current_session_id = session.get('current_session_id')
-        if session_manager and current_session_id:
-            try:
-                session_context = session_manager.get_session_context(current_session_id)
-                user_context.update(session_context)
-            except Exception as e:
-                logger.warning(f"Failed to get session context: {e}")
-
-        # Process message with bot engine
-        response = bot_engine.process_message(message, user_context)
-
-        # Save to session if session manager available
-        if session_manager and current_session_id:
-            try:
-                session_manager.save_chat_message(
-                    current_session_id,
-                    session['user']['username'],
-                    message,
-                    response,
-                    {'mode': mode, 'timestamp': datetime.now().isoformat()}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to save chat to session: {e}")
-
-        return jsonify({
-            'success': True,
-            'response': response,
-            'timestamp': datetime.now().isoformat(),
-            'session_id': current_session_id
-        })
-
-    except Exception as e:
-        logger.error(f"Chat API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/projects', methods=['GET'])
-def get_projects_api():
-    """Get all projects for current user"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-
-        user_id = session['user']['username']
-        logger.info(f"📋 API: Getting projects for user {user_id}")
-
-        # Get user's bot engine
-        user_bot_engine = get_user_bot_engine(user_id)
-
-        # Try to get projects from bot engine
-        if hasattr(user_bot_engine, 'get_user_projects'):
-            projects = user_bot_engine.get_user_projects(user_id)
-        else:
-            # Fallback to existing method
-            projects = user_bot_engine.get_projects(user_id) if hasattr(user_bot_engine, 'get_projects') else []
-
-        logger.info(f"📋 API: Found {len(projects)} projects")
-
-        return jsonify({
-            'success': True,
-            'projects': projects
-        })
-
-    except Exception as e:
-        logger.error(f"❌ API Error getting projects: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': 'Fehler beim Laden der Projekte'
-        }), 500
-
-
-@app.route('/api/projects', methods=['POST'])
-def create_project_api():
-    """Create a new project"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-
-        data = request.get_json()
-        name = data.get('name', '').strip()
-        description = data.get('description', '').strip()
-        language = data.get('language', 'python').strip()
-
-        if not name:
-            return jsonify({'success': False, 'error': 'Projektname ist erforderlich'}), 400
-
-        user_id = session['user']['username']
-        logger.info(f"📝 API: Creating project '{name}' for user {user_id}")
-
-        # Get user's bot engine
-        user_bot_engine = get_user_bot_engine(user_id)
-
-        # Try to create project
-        if hasattr(user_bot_engine, 'create_project'):
-            if hasattr(user_bot_engine, 'get_user_projects'):
-                # New style method signature
-                result = user_bot_engine.create_project(user_id, name, description, language)
-            else:
-                # Old style method signature
-                project_id = user_bot_engine.create_project(name, description, language, user_id)
-                result = {
-                    'success': True,
-                    'project': {
-                        'id': project_id,
-                        'name': name,
-                        'description': description,
-                        'language': language,
-                        'status': 'active',
-                        'created_at': datetime.now().isoformat(),
-                        'updated_at': datetime.now().isoformat()
-                    }
-                }
-        else:
-            # Fallback
-            result = {
-                'success': True,
-                'project': {
-                    'id': f"fallback_{int(datetime.now().timestamp())}",
-                    'name': name,
-                    'description': description,
-                    'language': language,
-                    'status': 'active',
-                    'created_at': datetime.now().isoformat(),
-                    'updated_at': datetime.now().isoformat()
-                }
-            }
-
-        if result.get('success'):
-            logger.info(f"✅ API: Project created successfully")
-            return jsonify(result)
-        else:
-            logger.error(f"❌ API: Project creation failed: {result.get('error')}")
-            return jsonify(result), 400
-
-    except Exception as e:
-        logger.error(f"❌ API Error creating project: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': f'Fehler beim Erstellen des Projekts: {str(e)}'
-        }), 500
-
-
-@app.route('/api/projects/<int:project_id>', methods=['PUT'])
-def update_project(project_id):
-    """Update a project"""
-    try:
+    @app.route('/logout', methods=['GET', 'POST'])
+    @login_required
+    def programming():
+        """Enhanced programming interface"""
         user_id = session.get('user_id')
-        if not user_id:
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        user_info = session.get('user_info', {})
 
-        data = request.get_json()
+        try:
+            return render_template('programming.html',
+                                   user=user_info,
+                                   username=user_id,
+                                   is_admin=user_info.get('is_admin', False),
+                                   config=AppConfig.get_runtime_info(),
+                                   features={
+                                       'code_review': AppConfig.ENABLE_CODE_REVIEW,
+                                       'project_management': AppConfig.ENABLE_PROJECT_MANAGEMENT,
+                                       'file_upload': AppConfig.ENABLE_FILE_UPLOAD
+                                   })
+        except Exception as e:
+            logger.error(f"Template error in programming: {e}")
+            # Fallback to simple programming interface
+            return """
+            <!DOCTYPE html>
+            <html lang="de">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Programming Interface - Programming Bot 2025</title>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+                    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                    h1 { color: #333; margin-bottom: 30px; }
+                    .fallback-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #ffeaa7; }
+                    .logout-btn { float: right; padding: 10px 20px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px; }
+                    .logout-btn:hover { background: #c82333; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="fallback-notice">
+                        <strong>⚠️ Fallback-Modus:</strong> Das originale Programming-Template konnte nicht geladen werden.
+                    </div>
+                    <h1>🤖 Programming Bot 2025 - Programming Interface</h1>
+                    <a href="/logout" class="logout-btn">Abmelden</a>
+                    <p>Willkommen in der Programming-Umgebung! Das vollständige Interface wird geladen, sobald die Template-Probleme behoben sind.</p>
+                    <p><strong>Benutzer:</strong> """ + str(user_id) + """</p>
+                    <p><strong>Features verfügbar:</strong></p>
+                    <ul>
+                        <li>Code Review: """ + str(AppConfig.ENABLE_CODE_REVIEW) + """</li>
+                        <li>Project Management: """ + str(AppConfig.ENABLE_PROJECT_MANAGEMENT) + """</li>
+                        <li>File Upload: """ + str(AppConfig.ENABLE_FILE_UPLOAD) + """</li>
+                    </ul>
+                </div>
+            </body>
+            </html>
+            """, 200
 
-        logger.info(f"📝 API: Updating project {project_id} for user {user_id}")
+    @app.route('/programming')
+    def health_check():
+        """Comprehensive health check endpoint"""
+        try:
+            return jsonify({
+                'status': 'healthy',
+                'timestamp': datetime.now().isoformat(),
+                'version': '2025.2.0',
+                'environment': AppConfig.ENVIRONMENT,
+                'config': AppConfig.get_runtime_info()
+            }), 200
 
-        # Get user's bot engine
-        bot_engine = get_user_bot_engine(user_id)
-        result = bot_engine.update_project(project_id, user_id, **data)
+        except Exception as e:
+            logger.error(f"Health check error: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Health check failed',
+                'timestamp': datetime.now().isoformat()
+            }), 500
 
-        if result.get('success'):
-            logger.info(f"✅ API: Project updated successfully")
-            return jsonify(result)
-        else:
-            logger.error(f"❌ API: Project update failed: {result.get('error')}")
-            return jsonify(result), 400
+    @app.route('/api/health')
+    @app.errorhandler(404)
+    def not_found_error(error):
+        """Handle 404 errors"""
+        if request.path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': 'not_found',
+                'message': 'Endpoint not found'
+            }), 404
 
-    except Exception as e:
-        logger.error(f"❌ API Error updating project: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': 'Fehler beim Aktualisieren des Projekts'
-        }), 500
+        # Simple 404 page
+        return """
+        <!DOCTYPE html>
+        <html><head><title>404 - Seite nicht gefunden</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+            <h1>404 - Seite nicht gefunden</h1>
+            <p>Die angeforderte Seite konnte nicht gefunden werden.</p>
+            <a href="/" style="color: #007bff;">Zur Startseite</a>
+        </body></html>
+        """, 404
 
+    @app.errorhandler(500)
+    def internal_error(error):
+        """Handle 500 errors"""
+        error_id = secrets.token_hex(8)
+        logger.error(f"Internal error [{error_id}]: {error}")
 
-@app.route('/api/projects/<int:project_id>', methods=['DELETE'])
-def delete_project(project_id):
-    """Delete a project"""
+        if request.path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': 'internal_error',
+                'message': 'Internal server error',
+                'error_id': error_id
+            }), 500
+
+        # Simple 500 page
+        return f"""
+        <!DOCTYPE html>
+        <html><head><title>500 - Serverfehler</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+            <h1>500 - Interner Serverfehler</h1>
+            <p>Es ist ein Fehler aufgetreten. Fehler-ID: {error_id}</p>
+            <a href="/" style="color: #007bff;">Zur Startseite</a>
+        </body></html>
+        """, 500
+
+    # Startup logging
+    print(f"✅ SECRET_KEY loaded from environment (length: {len(AppConfig.SECRET_KEY)})")
+    logger.info("🔧 Application Configuration:")
+    logger.info(f"   Environment: {AppConfig.ENVIRONMENT}")
+    logger.info(f"   Debug Mode: {AppConfig.DEBUG}")
+    logger.info(f"   Host: {AppConfig.HOST}:{AppConfig.PORT}")
+    logger.info(f"   Secret Key: ✅ Loaded from .env")
+    logger.info(f"   Auth System: {'✅ Loaded' if auth_system else '❌ Failed'}")
+
+    # Check session manager without causing double init
     try:
-        user_id = session.get('user_id')
-        if not user_id:
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        from session_manager import session_manager
+        logger.info(f"   Session Manager: ✅ Loaded")
+    except:
+        logger.info(f"   Session Manager: ❌ Failed")
 
-        logger.info(f"🗑️ API: Deleting project {project_id} for user {user_id}")
+    logger.info(f"   Rate Limiting: {'✅ Enabled' if limiter else '❌ Disabled'}")
+    logger.info(f"   CORS: {'✅ Enabled' if AppConfig.CORS_ORIGINS else '❌ Disabled'}")
+    logger.info(f"   File Upload: {'✅ Enabled' if AppConfig.ENABLE_FILE_UPLOAD else '❌ Disabled'}")
+    logger.info(f"   Claude API: {'✅ Configured' if AppConfig.CLAUDE_API_KEY else '❌ Not configured'}")
 
-        # Get user's bot engine
-        bot_engine = get_user_bot_engine(user_id)
-        result = bot_engine.delete_project(project_id, user_id)
+    # Error handlers
 
-        if result.get('success'):
-            logger.info(f"✅ API: Project deleted successfully")
-            return jsonify(result)
-        else:
-            logger.error(f"❌ API: Project deletion failed: {result.get('error')}")
-            return jsonify(result), 400
-
-    except Exception as e:
-        logger.error(f"❌ API Error deleting project: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': 'Fehler beim Löschen des Projekts'
-        }), 500
-
-
-@app.route('/api/code-review', methods=['POST'])
-def api_code_review():
-    """Enhanced code review API with session tracking"""
+    return app
+    """Enhanced main application entry point"""
     try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
+        app = create_app()
+        if not app:
+            print("❌ Failed to create application")
+            return
 
-        data = request.get_json()
-        code = data.get('code', '').strip()
-        language = data.get('language', 'python')
+        runtime_info = AppConfig.get_runtime_info()
 
-        if not code:
-            return jsonify({'success': False, 'error': 'No code provided'})
+        print("\n" + "=" * 70)
+        print("🚀 PROGRAMMING BOT 2025 - ENHANCED TEMPLATE EDITION")
+        print("=" * 70)
+        print(f"📍 Server: http://{AppConfig.HOST}:{AppConfig.PORT}")
+        print(f"💻 Login: http://{AppConfig.HOST}:{AppConfig.PORT}/login")
+        print(f"🔧 Programming: http://{AppConfig.HOST}:{AppConfig.PORT}/programming")
+        print(f"❤️  Health Check: http://{AppConfig.HOST}:{AppConfig.PORT}/api/health")
+        print("=" * 70)
+        print("🔑 Default Admin Login:")
+        print("   Username: admin")
+        print("   Password: TempAdmin2025!@#$%")
+        print("   (Change password on first login!)")
+        print("=" * 70)
+        print("🎯 Features:")
+        print(f"   Registration: {'✅' if AppConfig.ENABLE_REGISTRATION else '❌'}")
+        print(f"   Code Review: {'✅' if AppConfig.ENABLE_CODE_REVIEW else '❌'}")
+        print(f"   Project Management: {'✅' if AppConfig.ENABLE_PROJECT_MANAGEMENT else '❌'}")
+        print(f"   File Upload: {'✅' if AppConfig.ENABLE_FILE_UPLOAD else '❌'}")
+        print(f"   Rate Limiting: {'✅' if AppConfig.RATELIMIT_ENABLED else '❌'}")
+        print(f"   Claude AI: {'✅' if AppConfig.CLAUDE_API_KEY else '❌'}")
+        print("=" * 70)
+        print("🛠️  Template Fixes:")
+        print("   ✅ Template-Kontext JSON-Serialization behoben")
+        print("   ✅ Fallback-Templates für Fehlerbehandlung")
+        print("   ✅ Sowohl JSON als auch Form-Data Login unterstützt")
+        print("   ✅ Sichere Template-Funktionen implementiert")
+        print("=" * 70)
 
-        # Analyze code with bot engine
-        analysis = bot_engine.analyze_code(code, language)
-
-        # Save to session if session manager available
-        current_session_id = session.get('current_session_id')
-        if session_manager and current_session_id and analysis.get('success'):
-            try:
-                session_manager.save_code_review_result(
-                    current_session_id,
-                    session['user']['username'],
-                    code,
-                    language,
-                    analysis
-                )
-            except Exception as e:
-                logger.warning(f"Failed to save code review to session: {e}")
-
-        return jsonify(analysis)
-
-    except Exception as e:
-        logger.error(f"Code review API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/metrics')
-def api_metrics():
-    """Metrics API"""
-    try:
-        if 'user' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'})
-
-        user_id = session['user']['username']
-        metrics = bot_engine.get_metrics(user_id)
-
-        return jsonify({
-            'success': True,
-            **metrics
-        })
-
-    except Exception as e:
-        logger.error(f"Metrics API error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/logout', methods=['POST'])
-def api_logout():
-    """API logout endpoint"""
-    session.clear()
-    return jsonify({'success': True, 'message': 'Logged out successfully'})
-
-
-def main():
-    """Main application entry point"""
-    try:
-        # Load all modules
-        load_modules()
-
-        # Validate configuration
-        if not config:
-            logger.error("Configuration could not be loaded")
-            sys.exit(1)
-
-        # Update app secret key
-        if hasattr(config, 'SECRET_KEY') and config.SECRET_KEY:
-            app.secret_key = config.SECRET_KEY
-
-        # Get server configuration
-        host = getattr(config, 'HOST', '0.0.0.0')
-        port = getattr(config, 'PORT', 8100)
-        debug = getattr(config, 'DEBUG', False)
-
-        logger.info("🚀 Programming Bot 2025 starting...")
-        logger.info(f"📍 Server: http://{host}:{port}")
-        logger.info(f"💻 Programming Interface: http://{host}:{port}/app")
-        logger.info(f"💬 Chat-Only Interface: http://{host}:{port}/chat")
-
-        # Start Flask app
         app.run(
-            host=host,
-            port=port,
-            debug=debug,
-            threaded=True
+            host=AppConfig.HOST,
+            port=AppConfig.PORT,
+            debug=AppConfig.DEBUG,
+            threaded=AppConfig.THREADED,
+            use_reloader=AppConfig.DEBUG
         )
 
     except KeyboardInterrupt:
-        logger.info("Server stopped by user")
+        print("\n🛑 Server stopped by user")
     except Exception as e:
-        logger.error(f"Failed to start server: {e}")
+        print(f"❌ Failed to start server: {e}")
+        import traceback
+        if AppConfig.DEBUG:
+            traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+def main():
     main()

@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+
+{% block title %}Serverfehler - Programming Bot{% endblock %}
+
+{% block head %}
+<style>
+.error-container {
+    min-height: 80vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+}
+
+.error-content {
+    max-width: 650px;
+    background: var(--surface-color);
+    padding: 3rem;
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+
+.error-code {
+    font-size: 8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+    margin: 0;
+    font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+}
+
+.error-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-color);
+    margin: 1rem 0;
+}
+
+.error-message {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    margin: 1.5rem 0;
+    line-height: 1.6;
+}
+
+.error-actions {
+    animation: fadeInUp 0.6s ease-out 0.4s both;
+}
+
+.error-illustration {
+    animation: pulse 2s ease-in-out infinite;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <div class="error-content">
+        <div class="error-illustration">⚠️</div>
+        <h1 class="error-code">500</h1>
+        <h2 class="error-title">Interner Serverfehler</h2>
+        <p class="error-message">
+            Es ist ein unerwarteter Fehler auf dem Server aufgetreten. 
+            Unser Team wurde automatisch benachrichtigt und arbeitet an einer Lösung.
+        </p>
+        
+        <div class="error-details">
+            <h4>🔧 Was ist passiert?</h4>
+            <p>Der Server konnte Ihre Anfrage aufgrund eines internen Fehlers nicht verarbeiten. Dies kann verschiedene Ursachen haben:</p>
+            <div class="error-info">
+                {% if error_id %}
+                Fehler-ID: {{ error_id }}<br>
+                {% endif %}
+                Zeitpunkt: {{ moment().format('DD.MM.YYYY HH:mm:ss') }}<br>
+                Anfrage: {{ request.method }} {{ request.path }}
+            </div>
+        </div>
+        
+        <div class="retry-section">
+            <h4>🔄 Automatischer Neuversuch</h4>
+            <p>Die Seite wird automatisch in <span class="retry-timer" id="retryTimer">30</span> Sekunden neu geladen.</p>
+            <button onclick="clearRetry()" class="error-btn secondary" style="margin-top: 1rem;">
+                Automatischen Neuversuch abbrechen
+            </button>
+        </div>
+        
+        <div class="error-actions">
+            <button onclick="location.reload()" class="error-btn primary">
+                🔄 Jetzt neu laden
+            </button>
+            <a href="/" class="error-btn secondary">
+                🏠 Zur Startseite
+            </a>
+            <button onclick="history.back()" class="error-btn secondary">
+                ← Zurück
+            </button>
+            <a href="mailto:support@programmingbot.com?subject=Server%20Error%20500&body=Fehler-ID:%20{{ error_id or 'N/A' }}%0AZeitpunkt:%20{{ moment().format('DD.MM.YYYY HH:mm:ss') }}%0AURL:%20{{ request.url }}" class="error-btn secondary">
+                📧 Support kontaktieren
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+let retryTimeout;
+let retryCountdown = 30;
+
+function startRetryCountdown() {
+    const timerElement = document.getElementById('retryTimer');
+    
+    const updateTimer = () => {
+        timerElement.textContent = retryCountdown;
+        
+        if (retryCountdown <= 0) {
+            location.reload();
+            return;
+        }
+        
+        retryCountdown--;
+    };
+    
+    // Update immediately
+    updateTimer();
+    
+    // Then update every second
+    retryTimeout = setInterval(updateTimer, 1000);
+}
+
+function clearRetry() {
+    if (retryTimeout) {
+        clearInterval(retryTimeout);
+        retryTimeout = null;
+    }
+    
+    const timerElement = document.getElementById('retryTimer');
+    const retrySection = document.querySelector('.retry-section');
+    
+    if (retrySection) {
+        retrySection.innerHTML = `
+            <h4>⏸️ Automatischer Neuversuch deaktiviert</h4>
+            <p>Sie können die Seite manuell neu laden, wenn Sie bereit sind.</p>
+            <button onclick="location.reload()" class="error-btn primary" style="margin-top: 1rem;">
+                🔄 Manuell neu laden
+            </button>
+        `;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Start the retry countdown
+    startRetryCountdown();
+    
+    // Add ripple effect to buttons
+    const buttons = document.querySelectorAll('.error-btn');
+    buttons.forEach(button => {
+        button.addEventListener('click', function(e) {
+            const ripple = document.createElement('span');
+            const rect = this.getBoundingClientRect();
+            const size = Math.max(rect.width, rect.height);
+            const x = e.clientX - rect.left - size / 2;
+            const y = e.clientY - rect.top - size / 2;
+            
+            ripple.style.cssText = `
+                position: absolute;
+                width: ${size}px;
+                height: ${size}px;
+                left: ${x}px;
+                top: ${y}px;
+                background: rgba(255,255,255,0.3);
+                border-radius: 50%;
+                transform: scale(0);
+                animation: ripple 0.6s linear;
+                pointer-events: none;
+            `;
+            
+            this.style.position = 'relative';
+            this.style.overflow = 'hidden';
+            this.appendChild(ripple);
+            
+            setTimeout(() => ripple.remove(), 600);
+        });
+    });
+    
+    // Log error for analytics (in real app)
+    console.error('500 Server Error:', {
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        errorId: '{{ error_id or "N/A" }}'
+    });
+    
+    // Send error report to monitoring service (in real app)
+    if (typeof gtag !== 'undefined') {
+        gtag('event', 'exception', {
+            'description': '500 Server Error',
+            'fatal': false
+        });
+    }
+});
+
+// Add ripple animation
+const style = document.createElement('style');
+style.textContent = `
+@keyframes ripple {
+    to {
+        transform: scale(4);
+        opacity: 0;
+    }
+}
+`;
+document.head.appendChild(style);
+
+// Handle page visibility change
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        // Page is hidden, pause countdown
+        if (retryTimeout) {
+            clearInterval(retryTimeout);
+        }
+    } else {
+        // Page is visible again, resume countdown if not cleared
+        if (retryCountdown > 0 && !retryTimeout) {
+            const timerElement = document.getElementById('retryTimer');
+            if (timerElement && timerElement.textContent !== 'deaktiviert') {
+                startRetryCountdown();
+            }
+        }
+    }
+});
+</script>
+{% endblock %}
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+}
+
+.error-btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.error-btn.primary {
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    color: white;
+}
+
+.error-btn.primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,123,255,0.3);
+}
+
+.error-btn.secondary {
+    background: var(--surface-color);
+    color: var(--text-color);
+    border: 2px solid var(--border-color);
+}
+
+.error-btn.secondary:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.error-illustration {
+    margin: 2rem 0;
+    font-size: 4rem;
+    opacity: 0.5;
+}
+
+.error-details {
+    text-align: left;
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: var(--background-color);
+    border-radius: 12px;
+    border-left: 4px solid #e74c3c;
+}
+
+.error-details h4 {
+    margin: 0 0 1rem 0;
+    color: var(--text-color);
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.error-details p {
+    margin: 0.5rem 0;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.error-info {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.2);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+    font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.retry-section {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: rgba(0, 123, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(0, 123, 255, 0.1);
+}
+
+.retry-timer {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    margin: 0.5rem 0;
+}
+
+@media (max-width: 768px) {
+    .error-content {
+        padding: 2rem;
+        margin: 1rem;
+    }
+    
+    .error-code {
+        font-size: 5rem;
+    }
+    
+    .error-title {
+        font-size: 1.5rem;
+    }
+    
+    .error-actions {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .error-btn {
+        width: 100%;
+        max-width: 300px;
+    }
+}
+
+/* Animation */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.error-content {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.error-code {
+    animation: fadeInUp 0.6s ease-out 0.1s both;
+}
+
+.error-title {
+    animation: fadeInUp 0.6s ease-out 0.2s both;
+}
+
+.error-message {
+    animation: fadeInUp 0.6s ease-out 0.3s both;
+}
+
+.error-actions {

@@ -1,0 +1,372 @@
+/*
+web/static/css/themes/modern.css - Modernes 2025 Theme
+Glassmorphism, Gradients, Premium Animationen
+
+INHALTSVERZEICHNIS:
+1.  Globale Variablen (Farben, Radien, Animationen)
+2.  Animierter Hintergrund
+3.  Allgemeine Stile & Typografie
+4.  Layout & Glassmorphism-Komponenten
+5.  Header
+6.  Chat-Interface
+7.  Formulare & Eingabefelder
+8.  Buttons
+9.  Statistik-Karten (Stat-Cards)
+10. Premium Effekte & Utilities
+11. Scrollbar
+12. Responsive Design
+*/
+
+/* ===================================
+   1. GLOBALE VARIABLEN
+   =================================== */
+
+.theme-modern {
+    /* Schriftarten */
+    --font-primary: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-monospace: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+
+    /* Hintergrundfarben */
+    --bg-primary: #0a0a0f;
+    --bg-secondary: #141420;
+    --bg-glass: rgba(255, 255, 255, 0.08);
+    --bg-glass-light: rgba(255, 255, 255, 0.1);
+    --bg-glass-hover: rgba(255, 255, 255, 0.15);
+
+    /* Textfarben */
+    --text-color: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.8);
+    --text-muted: rgba(255, 255, 255, 0.6);
+
+    /* Akzentfarben */
+    --accent-primary: #00d4ff;
+    --accent-secondary: #7c3aed;
+    --accent-gradient: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+
+    /* Statusfarben */
+    --success-color: #00d4aa;
+    --warning-color: #ffb800;
+    --danger-color: #ff6b6b;
+
+    /* Ränder & Schatten */
+    --border-glass: rgba(255, 255, 255, 0.2);
+    --border-glass-light: rgba(255, 255, 255, 0.1);
+    --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.3);
+    --shadow-glow: 0 0 30px rgba(0, 212, 255, 0.3);
+
+    /* Radien & Übergänge */
+    --border-radius-lg: 25px;
+    --border-radius-md: 20px;
+    --border-radius-sm: 15px;
+    --transition-fast: 0.3s ease;
+    --transition-medium: 0.5s ease;
+}
+
+/* ===================================
+   2. ANIMIERTER HINTERGRUND
+   =================================== */
+
+.theme-modern body {
+    background: var(--bg-primary);
+    color: var(--text-color);
+    font-family: var(--font-primary);
+    position: relative;
+    overflow-x: hidden;
+}
+
+.theme-modern body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background:
+        radial-gradient(circle at 20% 80%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(124, 58, 237, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 40% 40%, rgba(0, 212, 255, 0.1) 0%, transparent 50%);
+    animation: backgroundPulse 20s ease-in-out infinite;
+    z-index: -1;
+    pointer-events: none;
+}
+
+@keyframes backgroundPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.1); }
+}
+
+/* ===================================
+   3. ALLGEMEINE STILE & TYPOGRAFIE
+   =================================== */
+
+/* (Keine wesentlichen Änderungen hier, bereits gut) */
+
+/* ===================================
+   4. LAYOUT & GLASSMORPHISM-KOMPONENTEN
+   =================================== */
+
+.theme-modern .container {
+    background: var(--bg-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-glass);
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-modern .container::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 2px;
+    background: var(--accent-gradient);
+    z-index: 1;
+}
+
+/* ===================================
+   5. HEADER
+   =================================== */
+
+.theme-modern .header {
+    background: rgba(20, 20, 32, 0.7); /* Leichter Kontrast für sticky Header */
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-bottom: 1px solid var(--border-glass);
+    padding: 1.5rem 2rem;
+    margin: 0; /* Angepasst für Sticky-Verhalten */
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.theme-modern .logo {
+    font-size: 1.8rem;
+    font-weight: 800;
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.5px;
+}
+
+.theme-modern .status-indicator {
+    color: var(--text-secondary);
+    background: var(--bg-glass);
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius-md);
+    border: 1px solid var(--border-glass);
+}
+
+
+/* ===================================
+   6. CHAT-INTERFACE
+   =================================== */
+
+.theme-modern .chat-container {
+    background: transparent; /* Container erbt bereits Glass-Effekt */
+}
+
+.theme-modern .message-bubble {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border-glass-light);
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Performance-Optimierung: transform statt 'left' animieren */
+.theme-modern .message-bubble::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, var(--bg-glass-light), transparent);
+    transform: translateX(-100%);
+    transition: transform var(--transition-medium);
+}
+
+.theme-modern .message-bubble:hover::before {
+    transform: translateX(100%);
+}
+
+.theme-modern .message-bubble.user {
+    background: rgba(0, 212, 255, 0.2);
+    color: var(--text-color);
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.2);
+    border-color: rgba(0, 212, 255, 0.3);
+}
+
+.theme-modern .message-bubble.bot {
+    background: var(--bg-glass);
+    color: var(--text-color);
+}
+
+/* ===================================
+   7. FORMULARE & EINGABEFELDER
+   =================================== */
+
+.theme-modern .chat-input-container {
+    background: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-top: 1px solid var(--border-glass);
+    padding: 1.5rem 2rem;
+}
+
+/* DRY-Prinzip: Gemeinsame Stile für alle Inputs */
+.theme-modern .form-input,
+.theme-modern .chat-input {
+    background: var(--bg-glass);
+    border: 2px solid var(--border-glass-light);
+    color: var(--text-color);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: var(--border-radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.theme-modern .form-input:focus,
+.theme-modern .chat-input:focus {
+    border-color: var(--accent-primary);
+    background: var(--bg-glass-light);
+    box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.2);
+}
+
+.theme-modern .chat-input::placeholder {
+    color: var(--text-muted);
+}
+
+.theme-modern .form-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* ===================================
+   8. BUTTONS
+   =================================== */
+
+.theme-modern .btn {
+    background: var(--accent-gradient);
+    color: white;
+    border: none;
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--border-radius-sm);
+    transition: all var(--transition-fast);
+}
+
+/* Performance-Optimierung: transform statt 'left' animieren */
+.theme-modern .btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transform: translateX(-100%);
+    transition: transform var(--transition-medium);
+}
+
+.theme-modern .btn:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-glow);
+}
+
+.theme-modern .btn:hover::before {
+    transform: translateX(100%);
+}
+
+.theme-modern .btn:active {
+    transform: translateY(-1px);
+}
+
+.theme-modern .btn-secondary {
+    background: var(--bg-glass);
+    border: 1px solid var(--border-glass);
+    color: var(--text-color);
+}
+
+/* ===================================
+   9. STATISTIK-KARTEN (Stat-Cards)
+   =================================== */
+
+.theme-modern .stat-card {
+    background: var(--bg-glass);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid var(--border-glass);
+    box-shadow: var(--shadow-glass);
+    transition: all var(--transition-fast);
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--border-radius-md);
+}
+
+.theme-modern .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 2px;
+    background: var(--accent-gradient);
+}
+
+.theme-modern .stat-card:hover {
+    transform: translateY(-8px);
+    background: var(--bg-glass-hover);
+    box-shadow: var(--shadow-glow);
+}
+
+.theme-modern .stat-value {
+    color: var(--accent-primary);
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+}
+
+/* ===================================
+   10. PREMIUM EFFEKTE & UTILITIES
+   =================================== */
+
+/* (Keine wesentlichen Änderungen hier, bereits gut) */
+
+/* ===================================
+   11. SCROLLBAR
+   =================================== */
+
+.theme-modern .chat-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.theme-modern .chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.theme-modern .chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(0, 212, 255, 0.3);
+    border-radius: 3px;
+}
+
+.theme-modern .chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 212, 255, 0.5);
+}
+
+/* ===================================
+   12. RESPONSIVE DESIGN
+   =================================== */
+
+@media (max-width: 768px) {
+    .theme-modern .container {
+        margin: 10px;
+        border-radius: var(--border-radius-md);
+    }
+
+    .theme-modern .header {
+        padding: 1rem;
+    }
+
+    .theme-modern .chat-input-container {
+        padding: 1rem;
+    }
+
+    .theme-modern .logo {
+        font-size: 1.4rem;
+    }
+}

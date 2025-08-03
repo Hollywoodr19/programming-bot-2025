@@ -8,7 +8,7 @@ import os
 def fix_projects_table():
     """Fix projects table schema mismatch"""
 
-    db_path = "bot_data.db"
+    db_path = "../bot_data.db"
 
     if not os.path.exists(db_path):
         print("❌ Database file not found!")

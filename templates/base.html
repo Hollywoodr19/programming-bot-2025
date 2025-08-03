@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{% block description %}Programming Bot 2025 - AI-powered coding assistant{% endblock %}">
+    <meta name="author" content="Programming Bot 2025">
+
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+
+    <title>{% block title %}Programming Bot 2025{% endblock %}</title>
+
+    <!-- Base Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block extra_css %}{% endblock %}
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+
+    <!-- Theme Detection -->
+    <script>
+        // Detect user theme preference
+        const theme = localStorage.getItem('theme') ||
+                     (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+    </script>
+</head>
+<body class="{% block body_class %}{% endblock %}" data-page="{% block page_name %}{% endblock %}">
+    <!-- Skip to main content for accessibility -->
+    <a href="#main-content" class="sr-only sr-only-focusable">Skip to main content</a>
+
+    <!-- Header Block -->
+    {% block header %}{% endblock %}
+
+    <!-- Main Content -->
+    <main id="main-content" role="main" class="main-content">
+        <!-- Alert Container -->
+        <div id="alert-container" class="alert-container" role="alert" aria-live="polite" aria-atomic="true">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} show" role="alert">
+                            <span class="alert-icon">
+                                {% if category == 'error' %}❌{% elif category == 'success' %}✅{% elif category == 'warning' %}⚠️{% else %}ℹ️{% endif %}
+                            </span>
+                            <span class="alert-message">{{ message|e }}</span>
+                            <button type="button" class="alert-close" onclick="closeAlert(this)" aria-label="Close alert">×</button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            <div id="dynamic-alert" class="alert" style="display: none;"></div>
+        </div>
+
+        <!-- Page Content -->
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer Block -->
+    {% block footer %}{% endblock %}
+
+    <!-- Loading Indicator -->
+    <div id="loading-indicator" class="loading-indicator" style="display: none;">
+        <div class="loading-spinner"></div>
+        <span class="loading-text">Loading...</span>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progress-bar" class="progress-bar" style="display: none;"></div>
+
+    <!-- Base JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <!-- Page-specific JavaScript -->
+    {% block extra_js %}{% endblock %}
+
+    <!-- Template Variables for JavaScript -->
+    <script>
+        // Make Flask data available to JavaScript
+        window.APP_CONFIG = {
+            debug: {{ config.DEBUG|tojson }},
+            version: "2025.2.0",
+            apiEndpoints: {
+                login: "{{ url_for('login') }}",
+                logout: "{{ url_for('logout') }}",
+                register: "{{ url_for('register') }}",
+                chat: "{{ url_for('chat_api') }}",
+                health: "{{ url_for('health_check') }}"
+            },
+            user: {
+                {% if session.username %}
+                username: {{ session.username|tojson }},
+                isAuthenticated: true
+                {% else %}
+                username: null,
+                isAuthenticated: false
+                {% endif %}
+            },
+            csrf_token: "{{ csrf_token() if csrf_token else '' }}"
+        };
+    </script>
+
+    <!-- Analytics/Monitoring (if needed) -->
+    {% block analytics %}{% endblock %}
+</body>
+</html>

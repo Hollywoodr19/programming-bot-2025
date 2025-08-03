@@ -1,0 +1,325 @@
+/*
+web/static/css/base.css - Basis-Styles für alle Themes
+REGEL: Nur grundlegende Layouts und Strukturen, keine Theme-spezifischen Farben!
+
+INHALTSVERZEICHNIS:
+1.  Globale CSS-Variablen (:root)
+2.  Reset & Grundlagen
+3.  Layout-Komponenten
+4.  Allgemeine Komponenten (Buttons, Inputs)
+5.  Chat-Komponenten
+6.  Stats & Dashboard
+7.  Utility-Klassen
+8.  Animationen
+9.  Status-Indikatoren
+10. Responsive Design
+11. Theme-Vorbereitung
+*/
+
+/* ===================================
+   1. GLOBALE CSS-VARIABLEN (:root)
+   =================================== */
+:root {
+    /* Basis-Variablen - werden von Themes überschrieben */
+    --text-color: #212529;
+    --bg-color: #ffffff;
+    --border-color: rgba(0,0,0,0.1);
+
+    /* Akzent- & Markenfarben (mit Fallbacks) */
+    --accent-color: #007bff;
+    --primary-color: #007bff;
+    --secondary-color: #6c757d;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+
+    /* Schriftarten */
+    --font-primary: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+    /* Übergänge */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+}
+
+
+/* ===================================
+   2. RESET & GRUNDLAGEN
+   =================================== */
+
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 100%; /* Stellt sicher, dass 1rem = 16px ist, respektiert aber Benutzereinstellungen */
+    scroll-behavior: smooth;
+}
+
+body {
+    height: 100%;
+    font-family: var(--font-primary);
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--text-color);
+    background-color: var(--bg-color);
+}
+
+
+/* ===================================
+   3. LAYOUT-KOMPONENTEN
+   =================================== */
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 0;
+    margin-bottom: 2rem;
+}
+
+.main-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+
+/* ===================================
+   4. ALLGEMEINE KOMPONENTEN (Buttons, Inputs)
+   =================================== */
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-width: 120px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    filter: none;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: #fff;
+}
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    color: #fff;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+/* Basisklasse für alle Inputs zur Vermeidung von Wiederholungen (DRY) */
+.input-base {
+    width: 100%;
+    border: 2px solid var(--border-color);
+    font-size: 1rem;
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.input-base:focus-visible {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
+}
+
+.form-input {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+}
+
+/* ===================================
+   5. CHAT-KOMPONENTEN
+   =================================== */
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 500px;
+    border-radius: 15px;
+    overflow: hidden;
+    position: relative;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+.message {
+    margin-bottom: 1.5rem;
+    display: flex;
+    animation: messageSlideIn 0.4s ease-out;
+}
+
+.message.user { justify-content: flex-end; }
+.message.bot { justify-content: flex-start; }
+
+.message-bubble {
+    max-width: 75%;
+    padding: 0.8rem 1.2rem;
+    border-radius: 20px;
+    word-wrap: break-word;
+}
+
+.message-bubble.user { border-bottom-right-radius: 5px; }
+.message-bubble.bot { border-bottom-left-radius: 5px; }
+
+.chat-input-container {
+    padding: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.input-group {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.chat-input {
+    flex: 1;
+    padding: 0.8rem 1.2rem;
+    border-radius: 15px;
+    resize: vertical;
+    min-height: 50px;
+    max-height: 150px;
+}
+
+/* ===================================
+   6. STATS & DASHBOARD
+   =================================== */
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+}
+
+.stat-card {
+    padding: 1.5rem;
+    border-radius: 15px;
+    text-align: center;
+    transition: transform var(--transition-normal);
+}
+
+.stat-card:hover { transform: translateY(-5px); }
+.stat-value { font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem; }
+.stat-label { font-size: 0.9rem; opacity: 0.8; text-transform: uppercase; }
+
+/* ===================================
+   7. UTILITY-KLASSEN
+   =================================== */
+
+.text-center { text-align: center; }
+.d-none { display: none !important; }
+
+/* ===================================
+   8. ANIMATIONEN
+   =================================== */
+
+@keyframes messageSlideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+    50% { opacity: 0.6; }
+}
+
+/* ===================================
+   9. STATUS-INDIKATOREN
+   =================================== */
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-top-color: currentColor; /* Nimmt die aktuelle Textfarbe an */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--success-color);
+    animation: pulse 2s infinite;
+}
+
+/* ===================================
+   10. RESPONSIVE DESIGN
+   =================================== */
+
+@media (max-width: 768px) {
+    .container { padding: 15px; }
+    .header { flex-direction: column; gap: 1rem; text-align: center; }
+    .chat-container { height: 70vh; }
+    .message-bubble { max-width: 85%; }
+    .input-group { flex-direction: column; align-items: stretch; }
+    .btn { width: 100%; }
+    .stats-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+    body { font-size: 0.95rem; }
+    .container { padding: 10px; }
+    .chat-input { font-size: 16px; /* Verhindert iOS-Zoom beim Fokussieren */ }
+}
+
+/* ===================================
+   11. THEME-VORBEREITUNG
+   =================================== */
+
+/* Leere Platzhalter, die von den Theme-Dateien gefüllt werden */
+.theme-modern, .theme-classic, .theme-minimal { }

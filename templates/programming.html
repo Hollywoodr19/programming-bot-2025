@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+
+{% block title %}Programming Interface - Programming Bot 2025{% endblock %}
+{% block description %}AI-powered programming interface with code editor, chat assistant, and project management{% endblock %}
+{% block page_name %}programming{% endblock %}
+{% block body_class %}programming-page{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/programming.css') }}">
+{% endblock %}
+
+{% block header %}
+<header class="app-header">
+    <div class="header-left">
+        <h1 class="app-title">
+            <span class="app-icon">🤖</span>
+            Programming Bot 2025
+        </h1>
+        <span class="user-badge">
+            <span class="user-avatar">👤</span>
+            <span class="username">{{ username }}</span>
+            {% if is_admin %}
+            <span class="admin-badge">Admin</span>
+            {% endif %}
+        </span>
+    </div>
+    
+    <div class="header-right">
+        <div class="header-controls">
+            <button class="btn-icon" onclick="toggleTheme()" title="Theme wechseln" aria-label="Theme wechseln">
+                <span id="theme-icon">🌙</span>
+            </button>
+            
+            <button class="btn-icon" onclick="showSettings()" title="Einstellungen" aria-label="Einstellungen öffnen">
+                <span>⚙️</span>
+            </button>
+            
+            <div class="connection-status">
+                <span id="connection-indicator" class="status-dot online"></span>
+                <span id="connection-text">Online</span>
+            </div>
+        </div>
+        
+        <div class="user-menu">
+            <button class="btn btn-secondary btn-sm" onclick="showUserMenu()" aria-label="User Menu">
+                {{ username }} ▼
+            </button>
+            
+            <div id="user-dropdown" class="dropdown-menu" style="display: none;">
+                <a href="{{ url_for('change_password') }}" class="dropdown-item">
+                    <span class="dropdown-icon">🔑</span>
+                    Passwort ändern
+                </a>
+                {% if is_admin %}
+                <a href="{{ url_for('system_info') }}" class="dropdown-item">
+                    <span class="dropdown-icon">📊</span>
+                    System Info
+                </a>
+                {% endif %}
+                <div class="dropdown-divider"></div>
+                <button onclick="logout()" class="dropdown-item logout-btn">
+                    <span class="dropdown-icon">🚪</span>
+                    Abmelden
+                </button>
+            </div>
+        </div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="programming-workspace">
+    <!-- Left Panel: Code Editor -->
+    <div class="code-panel">
+        <div class="panel-header">
+            <div class="panel-title">
+                <span class="panel-icon">💻</span>
+                <h3>Code Editor</h3>
+            </div>
+            
+            <div class="editor-controls">
+                <select id="language-select" class="language-selector" onchange="changeLanguage()" aria-label="Programming Language">
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="html">HTML</option>
+                    <option value="css">CSS</option>
+                    <option value="java">Java</option>
+                    <option value="cpp">C++</option>
+                    <option value="sql">SQL</option>
+                    <option value="json">JSON</option>
+                    <option value="markdown">Markdown</option>
+                </select>
+                
+                <div class="editor-actions">
+                    <button class="btn-icon" onclick="formatCode()" title="Code formatieren (Ctrl+Shift+F)" aria-label="Code formatieren">
+                        <span>🎨</span>
+                    </button>
+                    <button class="btn-icon" onclick="copyCode()" title="Code kopieren (Ctrl+C)" aria-label="Code kopieren">
+                        <span>📋</span>
+                    </button>
+                    <button class="btn-icon" onclick="downloadCode()" title="Code herunterladen (Ctrl+S)" aria-label="Code herunterladen">
+                        <span>💾</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="editor-container">
+            <div class="editor-wrapper">
+                <textarea 
+                    id="code-editor" 
+                    class="code-editor"
+                    placeholder="// Ihr Code hier..."
+                    spellcheck="false"
+                    aria-label="Code Editor"
+                    data-language="python"></textarea>
+                
+                <div class="editor-info">
+                    <div class="editor-stats">
+                        <span id="cursor-position">Ln 1, Col 1</span>
+                        <span class="separator">|</span>
+                        <span id="selection-info">UTF-8</span>
+                        <span class="separator">|</span>
+                        <span id="language-info">Python</span>
+                    </div>
+                    
+                    <div class="editor-options">
+                        <button class="btn-icon btn-sm" onclick="toggleLineNumbers()" title="Zeilennummern" aria-label="Zeilennummern umschalten">
+                            <span>🔢</span>
+                        </button>
+                        <button class="btn-icon btn-sm" onclick="toggleWordWrap()" title="Zeilenumbruch" aria-label="Zeilenumbruch umschalten">
+                            <span>↩️</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel-footer">
+            <div class="action-buttons">
+                <button class="btn btn-success" onclick="runCode()" title="Code ausführen (F5)" aria-label="Code ausführen">
+                    <span class="btn-icon">▶️</span>
+                    <span class="btn-text">Ausführen</span>
+                </button>
+                
+                <button class="btn btn-primary" onclick="reviewCode()" title="Code analysieren" aria-label="Code analysieren lassen">
+                    <span class="btn-icon">🔍</span>
+                    <span class="btn-text">AI Review</span>
+                </button>
+                
+                <button class="btn btn-info" onclick="explainCode()" title="Code erklären" aria-label="Code erklären lassen">
+                    <span class="btn-icon">📖</span>
+                    <span class="btn-text">Erklären</span>
+                </button>
+                
+                <button class="btn btn-warning" onclick="optimizeCode()" title="Code optimieren" aria-label="Code optimieren">
+                    <span class="btn-icon">⚡</span>
+                    <span class="btn-text">Optimieren</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Right Panel: Chat & Output -->
+    <div class="assistant-panel">
+        <!-- Chat Section -->
+        <div class="chat-section">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="panel-icon">🤖</span>
+                    <h3>AI Assistant</h3>
+                </div>
+                
+                <div class="chat-controls">
+                    <button class="btn-icon" onclick="exportChat()" title="Chat exportieren" aria-label="Chat exportieren">
+                        <span>📤</span>
+                    </button>
+                    <button class="btn-icon" onclick="clearChat()" title="Chat leeren" aria-label="Chat leeren">
+                        <span>🗑️</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-label="Chat Verlauf">
+                <div class="welcome-message">
+                    <div class="message-avatar bot-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <span class="message-sender">Programming Bot</span>
+                            <span class="message-time">{{ moment().format('HH:mm') }}</span>
+                        </div>
+                        <div class="message-text">
+                            <strong>Willkommen, {{ username }}!</strong><br>
+                            Ich bin Ihr AI-Programmierer-Assistent. Ich kann Ihnen bei folgenden Aufgaben helfen:
+                            <ul>
+                                <li>🔍 Code analysieren und reviewen</li>
+                                <li>🐛 Bugs finden und Lösungen vorschlagen</li>
+                                <li>📖 Code erklären und dokumentieren</li>
+                                <li>⚡ Code optimieren und refaktorieren</li>
+                                <li>💡 Algorithmen und Best Practices empfehlen</li>
+                            </ul>
+                            Stellen Sie mir einfach eine Frage oder teilen Sie Ihren Code mit mir!
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input-area">
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="chat-input" 
+                            class="chat-input"
+                            placeholder="Fragen Sie den AI Assistant..."
+                            rows="3"
+                            maxlength="4000"
+                            aria-label="Chat Eingabe"></textarea>
+                        
+                        <div class="input-actions">
+                            <button class="btn-icon" onclick="attachCode()" title="Code anhängen" aria-label="Aktuellen Code anhängen">
+                                <span>📎</span>
+                            </button>
+                            <button id="send-button" class="btn btn-primary btn-sm" onclick="sendMessage()" title="Nachricht senden (Ctrl+Enter)" aria-label="Nachricht senden">
+                                <span class="btn-spinner" style="display: none;"></span>
+                                <span class="btn-text">📤</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="input-info">
+                        <div class="char-counter">
+                            <span id="char-count">0</span>/<span>4000</span>
+                        </div>
+                        <div class="input-hints">
+                            💡 <strong>Tipp:</strong> Strg+Enter zum Senden
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Output Section -->
+        <div class="output-section">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="panel-icon">📊</span>
+                    <h3>Output</h3>
+                </div>
+                
+                <div class="output-controls">
+                    <button class="btn-icon" onclick="downloadOutput()" title="Output speichern" aria-label="Output speichern">
+                        <span>💾</span>
+                    </button>
+                    <button class="btn-icon" onclick="clearOutput()" title="Output leeren" aria-label="Output leeren">
+                        <span>🗑️</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="output-content" id="output-content" role="log" aria-live="polite" aria-label="Code Output">
+                <div class="output-placeholder">
+                    <div class="placeholder-icon">📊</div>
+                    <div class="placeholder-text">
+                        Code-Output wird hier angezeigt...<br>
+                        <small>Klicken Sie auf "Ausführen" um Ihren Code zu testen</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Session Recovery Modal -->
+{% if user_sessions %}
+<div id="session-recovery-modal" class="modal" style="display: none;">
+    <div class="modal-overlay" onclick="closeSessionRecovery()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>💾 Vorherige Sessions wiederherstellen</h3>
+            <button class="modal-close" onclick="closeSessionRecovery()" aria-label="Modal schließen">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <p>Sie haben vorherige Programming-Sessions. Möchten Sie eine davon wiederherstellen?</p>
+            
+            <div class="session-list">
+                {% for session in user_sessions[:5] %}
+                <div class="session-item" onclick="restoreSession('{{ session.session_id }}')">
+                    <div class="session-info">
+                        <div class="session-title">
+                            Session vom {{ session.created_at|datetime('%d.%m.%Y %H:%M') }}
+                        </div>
+                        <div class="session-meta">
+                            {{ session.language or 'Python' }} • {{ session.lines or '0' }} Zeilen
+                        </div>
+                    </div>
+                    <div class="session-preview">
+                        {{ (session.code_preview or 'Kein Code')[:100] }}...
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeSessionRecovery()">
+                Neue Session starten
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Settings Modal -->
+<div id="settings-modal" class="modal" style="display: none;">
+    <div class="modal-overlay" onclick="closeSettings()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>⚙️ Einstellungen</h3>
+            <button class="modal-close" onclick="closeSettings()" aria-label="Modal schließen">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <div class="settings-section">
+                <h4>Editor</h4>
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="auto-save" checked>
+                        <span class="checkmark"></span>
+                        Automatisches Speichern (alle 30s)
+                    </label>
+                </div>
+                
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="syntax-highlight" checked>
+                        <span class="checkmark"></span>
+                        Syntax Highlighting
+                    </label>
+                </div>
+                
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="line-numbers" checked>
+                        <span class="checkmark"></span>
+                        Zeilennummern anzeigen
+                    </label>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h4>Darstellung</h4>
+                <div class="setting-item">
+                    <label class="setting-label">
+                        Theme:
+                        <select id="theme-select" class="setting-select">
+                            <option value="auto">Automatisch</option>
+                            <option value="light">Hell</option>
+                            <option value="dark">Dunkel</option>
+                        </select>
+                    </label>
+                </div>
+                
+                <div class="setting-item">
+                    <label class="setting-label">
+                        Schriftgröße:
+                        <select id="font-size-select" class="setting-select">
+                            <option value="12">12px</option>
+                            <option value="14" selected>14px</option>
+                            <option value="16">16px</option>
+                            <option value="18">18px</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h4>KI-Assistent</h4>
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="auto-review" checked>
+                        <span class="checkmark"></span>
+                        Automatische Code-Reviews
+                    </label>
+                </div>
+                
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="smart-suggestions">
+                        <span class="checkmark"></span>
+                        Intelligente Vorschläge
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="saveSettings()">
+                Speichern
+            </button>
+            <button class="btn btn-secondary" onclick="closeSettings()">
+                Abbrechen
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block footer %}
+<footer class="app-footer">
+    <div class="footer-left">
+        <div class="status-indicators">
+            <div class="status-item">
+                <span class="status-dot" id="ai-status"></span>
+                <span class="status-text">AI: {{ config.CLAUDE_MODEL }}</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="session-status"></span>
+                <span class="status-text">Session: <span id="session-time">00:00</span></span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer-center">
+        <div class="quick-actions">
+            <button class="btn-icon btn-sm" onclick="showShortcuts()" title="Keyboard Shortcuts (F1)" aria-label="Keyboard Shortcuts anzeigen">
+                <span>⌨️</span>
+            </button>
+            <button class="btn-icon btn-sm" onclick="showHelp()" title="Hilfe" aria-label="Hilfe anzeigen">
+                <span>❓</span>
+            </button>
+        </div>
+    </div>
+    
+    <div class="footer-right">
+        <div class="app-info">
+            <span class="version">v{{ app_version }}</span>
+            <span class="separator">•</span>
+            <span class="copyright">{{ current_year }}</span>
+        </div>
+    </div>
+</footer>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/programming.js') }}"></script>
+<script>
+    // Initialize Programming Interface
+    document.addEventListener('DOMContentLoaded', function() {
+        ProgrammingInterface.init({
+            username: {{ username|tojson }},
+            isAdmin: {{ is_admin|tojson }},
+            sessionData: {{ session_data|tojson }},
+            userSessions: {{ user_sessions|tojson }},
+            config: {
+                autoSave: true,
+                syntaxHighlight: true,
+                aiModel: {{ config.CLAUDE_MODEL|tojson }}
+            }
+        });
+        
+        // Show session recovery if available
+        {% if user_sessions %}
+        setTimeout(() => {
+            showSessionRecovery();
+        }, 1000);
+        {% endif %}
+    });
+</script>
+{% endblock %}
